@@ -4,7 +4,7 @@
     python pipeline_preprocess/pipeline_01.py --steps prepare light
     python pipeline_preprocess/pipeline_01.py --steps segment      # GPU (Colab)
 
-Input   data/raw_download/                 Food-101 as downloaded (any nesting)
+Input   data/raw_data/                     Food-101 as downloaded (any nesting)
 Output  data/preprocessing_data/
           manifest.csv                     relpath,label,split (same for every variant)
           original_data/                   resized photo, baseline + input of every other step
@@ -34,7 +34,7 @@ import numpy as np
 # =============================================================== config
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = Path(os.environ.get("FOOD_DATA_DIR", PROJECT_ROOT / "data"))
-RAW_DOWNLOAD_DIR = DATA_DIR / "raw_download"
+RAW_DATA_DIR = DATA_DIR / "raw_data"
 OUT_DIR = DATA_DIR / "preprocessing_data"
 MANIFEST = OUT_DIR / "manifest.csv"
 
@@ -281,7 +281,7 @@ def main():
                     choices=["prepare", "light", "segment"])
     ap.add_argument("--seg-modes", nargs="+", default=["gsam", "gsam_light", "sam"],
                     choices=list(SAM_IDS))
-    ap.add_argument("--src", default=str(RAW_DOWNLOAD_DIR))
+    ap.add_argument("--src", default=str(RAW_DATA_DIR))
     a = ap.parse_args()
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)

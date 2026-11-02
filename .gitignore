@@ -1,4 +1,4 @@
-data/raw_download/
+data/raw_data/
 data/preprocessing_data/*
 !data/preprocessing_data/manifest.csv
 __pycache__/
@@ -7,3 +7,7 @@ __pycache__/
 
 # Uploaded archives (dataset is 5.4 GB, over GitHub's 100 MB file limit)
 *.zip
+
+
+# books
+books/*

@@ -23,7 +23,7 @@ image-processing-project/
 │   └── 03_transformer.ipynb         #   DeiT-Small, ImageNet-pretrained, fine-tuned
 │
 ├── data/                            # not committed (except manifest.csv)
-│   ├── raw_download/                #   Food-101 as downloaded (Kaggle kmader/food41 v5)
+│   ├── raw_data/                    #   Food-101 as downloaded (Kaggle kmader/food41 v5)
 │   └── preprocessing_data/          #   everything pipeline_01.py produces
 │       ├── manifest.csv             #   which image is in which split
 │       ├── boxes.json, <seg>_stats.csv

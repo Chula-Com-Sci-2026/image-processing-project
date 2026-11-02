@@ -15,7 +15,7 @@ Team: 2 data scientists (work in notebooks), 1 data engineer (data preparation &
 See the folder tree in `README.md`. In short:
 - `pipeline_preprocess/pipeline_01.py` (data engineer): one script with three steps (`prepare`, `light`, `segment`) that builds `data/preprocessing_data/<variant>_data/{train,val,test}/<class>/*.jpg`. All constants (classes, split seed, sizes, model IDs) sit at the top of the file. Every step reads `original_data/` and keeps the same relative paths as `manifest.csv`.
 - `model_pipeline/` (everyone): one self-contained notebook per model family: `01_neural_network`, `02_cnn`, `03_transformer`. Each reads `data/preprocessing_data/<VARIANT>_data/` directly and writes to `results/<family>/`. Paths are preset in the second cell. No shared library on purpose: each person owns their notebook.
-- `data/raw_download/`: Food-101 as downloaded. `data/preprocessing_data/`: all generated variants.
+- `data/raw_data/`: Food-101 as downloaded. `data/preprocessing_data/`: all generated variants.
 
 New preprocessing ideas go in a new `pipeline_preprocess/pipeline_02.py` that reads `original_data/` and writes new `<name>_data/` folders. Don't edit `pipeline_01.py` in a way that changes data that has already been used for results.
 
