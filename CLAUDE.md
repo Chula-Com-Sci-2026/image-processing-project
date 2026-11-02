@@ -26,7 +26,7 @@ Team rules (deliberately minimal):
 
 ## What we already know (25-Oct trial, `trial_results.html` in the Project)
 - Setup: 20 classes, 400/200/400 images, one seed. Noise was about ±4.5 pt, so most gaps are not evidence yet.
-- Segmentation (Grounded-SAM) helped the scratch CNN and the handcrafted-feature MLP by +6–7 pt, but hurt pretrained MobileNetV3.
+- Grounded-SAM alone gave the handcrafted-feature MLP +5.50 pt and the scratch CNN +1.50 pt. CLAHE + Grounded-SAM gave +6.25 and +6.75 pt. Grounded-SAM hurt pretrained MobileNetV3.
 - Likely reasons, not yet tested: a grey background is out-of-distribution for ImageNet features; plates and bowls are real clues; bad masks remove food.
 - SAM with a centre-point prompt often fails. Grounded-SAM usually keeps the whole dish.
 

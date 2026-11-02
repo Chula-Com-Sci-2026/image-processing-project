@@ -231,7 +231,7 @@ Stored images are not square. The ResNet-50 and DeiT-Small notebooks produce 224
 
 A trial on 25 October used a different setup: 20 classes, 400/200/400 images, and one seed. Noise was about ±4.5 points, so most gaps were not yet evidence.
 
-- Grounded-SAM helped a scratch CNN and a handcrafted-feature MLP by about +6 to +7 points, but hurt pretrained MobileNetV3.
+- Grounded-SAM alone gave a handcrafted-feature MLP +5.50 points and a scratch CNN +1.50 points. CLAHE + Grounded-SAM gave +6.25 and +6.75 points. Grounded-SAM hurt pretrained MobileNetV3.
 - Possible reasons, not yet tested: a grey background is out-of-distribution for ImageNet features, plates and bowls are real clues, and bad masks remove food.
 - SAM with a centre-point prompt often failed, while Grounded-SAM usually kept the whole dish.
 
