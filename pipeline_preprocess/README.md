@@ -171,13 +171,13 @@ An image counts as failed in either of these cases:
 
 A failed image keeps its `original` photo in both output variants. No image is dropped, so every variant still has 10,000 images. Each `<mode>_stats.csv` records `relpath`, `split`, `mask_area`, and `fallback`.
 
-| Fallback rate | Value |
-|---|---|
-| `gsam` | **PENDING** |
-| `gsam_light` | **PENDING** |
-| `sam` | **PENDING** |
+| Mode | Fallback rate | Masks above 90% of the image | Mean mask area |
+|---|---|---|---|
+| `gsam` | 1.54% | 3.05% | 0.421 |
+| `gsam_light` | 0.86% | 5.42% | 0.472 |
+| `sam` | 45.69% | 0.35% | 0.184 |
 
-The protocol requires reporting the fallback rate, because a high rate makes a segmentation variant behave more like `original`.
+The protocol requires reporting the fallback rate, because a high rate makes a segmentation variant behave more like `original`. Nearly half of the `sam` images are therefore unchanged photos, so `sam` results describe a mix of segmented and original images. Masks above 90% are not counted as failures, but they barely separate food from background.
 
 ## 5. All variants
 
@@ -241,9 +241,8 @@ A trial on 25 October used a different setup: 20 classes, 400/200/400 images, an
 |---|---|
 | Pipeline code | complete (`pipeline_01.py`) |
 | `original`, `clahe`, `histeq`, manifest | generated and stored on Drive |
-| `gsam` segmentation run on Colab | **PENDING** (first run stopped when the session ended; no output kept) |
-| `gsam_light` and `sam` runs | **PENDING** |
-| Manifest SHA-256 for the team to verify | **PENDING** |
+| `gsam`, `gsam_light`, `sam` runs | generated and stored on Drive (9 zips, 10,000 images each, same file names) |
+| Manifest SHA-256 for the team to verify | `6769540ffb34031005b09bc5a6ac86b59c61ca4eb5ad397dd6418728b166a882` |
 | Model training | **PENDING** |
 
 ## 10. References
