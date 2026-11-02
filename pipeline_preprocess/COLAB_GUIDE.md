@@ -2,7 +2,7 @@
 
 คู่มือนี้สร้างข้อมูลทุก variant บน Colab แล้วเก็บไว้บน Google Drive ให้ทั้งทีมใช้ร่วมกัน
 
-- **ส่วนที่ 1–5:** สำหรับ data engineer ที่รัน pipeline
+- **ส่วนที่ 1–5:** สำหรับ data engineer ที่รัน pipeline ถ้า `original_data.zip` และ `manifest.csv` อยู่บน Drive แล้ว ให้เริ่มจากข้อ 4–5, Cell 1 และส่วนที่ 5 แล้วไป Cell 5
 - **ส่วนที่ 6:** สำหรับ data scientist ที่นำข้อมูลไปเทรนโมเดล
 
 ## หลักการที่ต้องรู้ก่อนเริ่ม
@@ -11,9 +11,11 @@
 |---|---|---|
 | `/content/data/` (เครื่อง Colab) | ภาพที่ pipeline สร้างหรือ unzip มา | หายเมื่อ session จบหรือหลุด |
 | `dip-project/data_zips/` (Drive) | zip ราย variant, `manifest.csv`, `boxes.json`, `*_stats.csv` | ถาวร |
+| `dip-project/data_zips/checkpoints/` (Drive) | ความคืบหน้าของ step segment ทุก 500 รูป | ถาวร จนกว่าจะลบ |
 
 - **อย่าเขียนหรืออ่านภาพจาก Drive ตรง ๆ** เพราะไฟล์เล็กจำนวนมากจะช้ามาก ให้ทำงานบน `/content` แล้วเก็บเป็น zip
 - **รัน `save(...)` ทันทีที่แต่ละ step จบ** ไม่อย่างนั้นถ้า session หลุด ภาพชุดนั้นจะหาย
+- **Step segment เซฟ checkpoint ขึ้น Drive เอง** ถ้าหลุดจะเสียงานไม่เกิน 500 รูป
 
 ## ส่วนที่ 1: เตรียมก่อนเปิด notebook
 
@@ -60,6 +62,7 @@ SAVE = "/content/drive/MyDrive/2110651-digital-images-processing/2110651-digital
 OUT = "/content/data/preprocessing_data"
 os.makedirs(SAVE, exist_ok=True)
 os.environ.update(FOOD_DATA_DIR="/content/data",
+                  FOOD_CHECKPOINT_DIR=f"{SAVE}/checkpoints",
                   KAGGLE_API_TOKEN=userdata.get("KAGGLE_API_TOKEN"))
 
 def save(*variants):
@@ -112,10 +115,11 @@ save("gsam", "gsam_crop")
 
 - **ประมาณเวลา:** ดูจาก log `[boxes] n/10000` และ `[gsam] n/10000` ที่ขึ้นทุก 500 รูป
 - **Fallback rate:** จดเลขในบรรทัด `[gsam] done, fallback rate` เพราะต้องใช้ในรายงาน
+- **ถ้าหลุด:** ทำตาม [ส่วนที่ 5](#ส่วนที่-5-ถ้า-colab-หลุดกลางทาง) แล้วรัน Cell นี้ซ้ำ log จะขึ้น `resumed at n/10000`
 
 ### Cell 6: segment ที่เหลือ (priority 2)
 
-แยกรันวันอื่นได้ แต่ต้องทำขั้นตอนใน [ถ้า Colab หลุดกลางทาง](#ถ้า-colab-หลุดกลางทาง) ก่อน
+แยกรันวันอื่นได้ แต่ต้องทำขั้นตอนใน [ส่วนที่ 5](#ส่วนที่-5-ถ้า-colab-หลุดกลางทาง) ก่อน
 
 ```python
 !python pipeline_preprocess/pipeline_01.py --steps segment --seg-modes gsam_light
@@ -138,6 +142,8 @@ save("sam", "sam_crop")
 - `manifest.csv`, `boxes.json`, `pip_freeze.txt`
 - `gsam_stats.csv`, `gsam_light_stats.csv`, `sam_stats.csv`
 
+เมื่อครบแล้วลบโฟลเดอร์ `data_zips/checkpoints/` บน Drive ได้ ถ้าจะรันใหม่ด้วย prompt, threshold หรือโมเดลอื่น **ต้องลบก่อน** ไม่อย่างนั้น pipeline จะนำผลเก่ากลับมาใช้
+
 ### 8. Commit manifest ลง repo
 
 1. โหลด `manifest.csv` จาก `data_zips/` บน Drive
@@ -150,7 +156,7 @@ save("sam", "sam_crop")
 
 ## ส่วนที่ 5: ถ้า Colab หลุดกลางทาง
 
-รัน Cell 1 แล้วรัน cell นี้แทน Cell 2–4
+ใช้ส่วนนี้เมื่อ `original_data.zip` และ `manifest.csv` อยู่บน Drive แล้ว ให้รัน Cell 1 แล้วรัน cell นี้แทน Cell 2–4
 
 ```python
 import glob
@@ -162,9 +168,7 @@ for z in glob.glob(f"{SAVE}/*_data.zip"):
 !cp {SAVE}/manifest.csv {SAVE}/boxes.json {SAVE}/*_stats.csv {OUT}/ 2>/dev/null
 ```
 
-จากนั้นรัน Cell 5 หรือ 6 ต่อจากจุดที่ค้าง โหมดที่ save แล้วจะถูกข้ามเอง
-
-ถ้าหลุดระหว่าง Cell 5 ต้องรัน Grounding DINO ใหม่ เพราะ `boxes.json` จะขึ้น Drive พร้อม `save("gsam", "gsam_crop")` เท่านั้น
+จากนั้นรัน Cell 5 หรือ 6 ต่อจากจุดที่ค้าง โหมดที่ save แล้วจะถูกข้ามเอง ส่วนโหมดที่ค้างจะอ่าน checkpoint จาก Drive แล้วทำต่อจาก 500 รูปล่าสุด ทั้ง `boxes` และ mask
 
 ## ส่วนที่ 6: สำหรับ data scientist
 
@@ -211,6 +215,7 @@ DATA_ROOT = Path("/content/data/preprocessing_data")
 
 ```python
 os.environ.update(FOOD_DATA_DIR="/content/data",
+                  FOOD_CHECKPOINT_DIR=f"{SAVE}/checkpoints",
                   KAGGLE_USERNAME=userdata.get("KAGGLE_USERNAME"),
                   KAGGLE_KEY=userdata.get("KAGGLE_KEY"))
 ```

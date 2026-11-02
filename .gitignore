@@ -1,5 +1,6 @@
 data/raw_data/
 data/preprocessing_data/*
+data/checkpoints/
 !data/preprocessing_data/manifest.csv
 __pycache__/
 *.pyc
@@ -11,3 +12,7 @@ __pycache__/
 
 # books
 books/*
+
+# local env and analyst figures
+.venv/
+analyst/figures/

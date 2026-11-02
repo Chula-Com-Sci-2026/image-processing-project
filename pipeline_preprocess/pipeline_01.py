@@ -13,6 +13,7 @@ Output  data/preprocessing_data/
           <seg>_crop_data/                 cropped to food, background kept
           boxes.json  <seg>_stats.csv      Grounding DINO boxes, mask area + fallback per image
         each variant: {train,val,test}/<class>/<id>.jpg
+Checkpoints  data/checkpoints/             segment progress, or FOOD_CHECKPOINT_DIR (a Drive folder on Colab)
 
 Steps
   prepare   pick 10 classes, split (official train -> train/val, official test), resize
@@ -25,6 +26,7 @@ import glob
 import json
 import os
 import random
+import zipfile
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -37,6 +39,8 @@ DATA_DIR = Path(os.environ.get("FOOD_DATA_DIR", PROJECT_ROOT / "data"))
 RAW_DATA_DIR = DATA_DIR / "raw_data"
 OUT_DIR = DATA_DIR / "preprocessing_data"
 MANIFEST = OUT_DIR / "manifest.csv"
+CKPT_DIR = Path(os.environ.get("FOOD_CHECKPOINT_DIR", DATA_DIR / "checkpoints"))
+CKPT_EVERY = 500              # a dead session loses at most this many images
 
 # 10 classes = 5 look-alike pairs (some differ by container, some by the food itself)
 CLASSES = [
@@ -185,6 +189,43 @@ def apply_mask(arr, mask):
     return masked[y0:y1, x0:x1], arr[y0:y1, x0:x1], area, False
 
 
+def _write_atomic(path, write):
+    """Only a finished file gets the final name, so a dead session never leaves half a checkpoint."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    write(tmp)
+    os.replace(tmp, path)
+
+
+def _part_path(mode, start):
+    return CKPT_DIR / f"{mode}_{start:05d}.zip"
+
+
+def _save_part(mode, start, chunk):
+    def write(tmp):
+        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_STORED) as z:   # JPEG is already compressed
+            z.writestr("stats.json", json.dumps(chunk))
+            for s in chunk:
+                for name in (mode, mode + "_crop"):
+                    z.write(variant_dir(name) / s["relpath"], f"{name}_data/{s['relpath']}")
+    _write_atomic(_part_path(mode, start), write)
+
+
+def _restore_parts(mode):
+    """Unpack finished parts in order and return their stats; stops at the first missing or broken part."""
+    stats = []
+    while True:
+        try:
+            with zipfile.ZipFile(_part_path(mode, len(stats))) as z:
+                if z.testzip() is not None:
+                    return stats
+                chunk = json.loads(z.read("stats.json"))
+                z.extractall(OUT_DIR, [n for n in z.namelist() if n != "stats.json"])
+        except (FileNotFoundError, zipfile.BadZipFile):
+            return stats
+        stats += chunk
+
+
 def _detect_boxes(device):
     """Grounding DINO once; boxes are shared by gsam and gsam_light (only the mask model differs)."""
     path = OUT_DIR / "boxes.json"
@@ -195,8 +236,15 @@ def _detect_boxes(device):
     from transformers import AutoModelForZeroShotObjectDetection, AutoProcessor
     proc = AutoProcessor.from_pretrained(DINO_ID)
     model = AutoModelForZeroShotObjectDetection.from_pretrained(DINO_ID).to(device).eval()
-    src, rows, boxes = variant_dir("original"), read_manifest(), {}
+    part = CKPT_DIR / "boxes.json"
+    save_part = lambda: _write_atomic(part, lambda tmp: tmp.write_text(json.dumps(boxes)))
+    src, rows = variant_dir("original"), read_manifest()
+    boxes = json.load(open(part)) if part.exists() else {}
+    if boxes:
+        print(f"[boxes] resumed at {len(boxes)}/{len(rows)}")
     for n, r in enumerate(rows):
+        if r["relpath"] in boxes:
+            continue
         img = Image.open(src / r["relpath"]).convert("RGB")
         inp = proc(images=img, text=TEXT_PROMPT, return_tensors="pt").to(device)
         with torch.no_grad():
@@ -209,6 +257,9 @@ def _detect_boxes(device):
         boxes[r["relpath"]] = [[round(v, 1) for v in b] for b in res["boxes"].tolist()]
         if n % 500 == 0:
             print(f"[boxes] {n}/{len(rows)}")
+        if (n + 1) % CKPT_EVERY == 0:
+            save_part()
+    save_part()
     json.dump(boxes, open(path, "w"))
     return boxes
 
@@ -219,8 +270,12 @@ def _segment_mode(mode, device, boxes):
     from transformers import SamModel, SamProcessor
     proc = SamProcessor.from_pretrained(SAM_IDS[mode])
     sam = SamModel.from_pretrained(SAM_IDS[mode]).to(device).eval()
-    src, rows, stats = variant_dir("original"), read_manifest(), []
+    src, rows, stats = variant_dir("original"), read_manifest(), _restore_parts(mode)
+    if stats:
+        print(f"[{mode}] resumed at {len(stats)}/{len(rows)}")
     for n, r in enumerate(rows):
+        if n < len(stats):
+            continue
         img = Image.open(src / r["relpath"]).convert("RGB")
         w, h = img.size
         mask = None
@@ -248,6 +303,9 @@ def _segment_mode(mode, device, boxes):
                       "mask_area": round(area, 4), "fallback": int(fallback)})
         if n % 500 == 0:
             print(f"[{mode}] {n}/{len(rows)}")
+        if (n + 1) % CKPT_EVERY == 0 or n + 1 == len(rows):
+            start = n // CKPT_EVERY * CKPT_EVERY
+            _save_part(mode, start, stats[start:])
 
     with open(OUT_DIR / f"{mode}_stats.csv", "w", newline="") as f:
         wr = csv.DictWriter(f, fieldnames=list(stats[0]))

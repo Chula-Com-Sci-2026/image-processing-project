@@ -240,7 +240,8 @@ A trial on 25 October used a different setup: 20 classes, 400/200/400 images, an
 | Item | Status as of 2 November 2026 |
 |---|---|
 | Pipeline code | complete (`pipeline_01.py`) |
-| `gsam` segmentation run on Colab | in progress |
+| `original`, `clahe`, `histeq`, manifest | generated and stored on Drive |
+| `gsam` segmentation run on Colab | **PENDING** (first run stopped when the session ended; no output kept) |
 | `gsam_light` and `sam` runs | **PENDING** |
 | Manifest SHA-256 for the team to verify | **PENDING** |
 | Model training | **PENDING** |
