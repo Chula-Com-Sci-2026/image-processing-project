@@ -1,0 +1,24 @@
+# Core
+numpy
+pandas
+matplotlib
+pillow
+joblib
+
+# Image processing and classical features
+opencv-python
+scikit-image
+scikit-learn
+
+# Deep learning
+torch
+torchvision
+timm                # ResNet-50 and DeiT-Small backbones
+transformers>=4.40  # Grounding DINO, SAM, SlimSAM
+
+# Analysis
+statsmodels         # optional McNemar test
+
+# Tools
+kaggle              # dataset download
+jupyter
