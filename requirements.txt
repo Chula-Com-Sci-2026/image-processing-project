@@ -8,6 +8,7 @@ joblib
 # Image processing and classical features
 opencv-python
 scikit-image
+PyWavelets          # skimage denoise_wavelet (dataset 2)
 scikit-learn
 
 # Deep learning

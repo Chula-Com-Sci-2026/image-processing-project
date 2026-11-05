@@ -13,10 +13,14 @@ image-processing-project/
 ├── .gitignore
 │
 ├── pipeline_preprocess/
-│   ├── pipeline_02.md               # the current data process, step by step
-│   ├── pipeline_02.py               # builds data/dataset/ (not written yet)
-│   ├── pipeline_01.py               # old process (replaced 2026-11-03)
-│   └── COLAB_GUIDE.md
+│   ├── pipeline_02.py               # builds data/dataset/
+│   └── pipeline_01.py               # old process (replaced 2026-11-03)
+│
+├── doc/
+│   ├── pipeline/pipeline_02.md      # the current data process, step by step
+│   ├── analysis/                    # preprocess_metrics.md: what each preprocessing step does
+│   ├── references/                  # references_map.md: textbook ↔ papers
+│   └── legacy/                      # old process (pipeline_01) docs
 │
 ├── analyst/                         # notebooks for viewing images, masks, stats
 │
@@ -26,8 +30,8 @@ image-processing-project/
     └── dataset/                     #   what the team uses
         ├── meta/                    #   manifest.csv, removed.csv, class_counts.csv, ...
         ├── 01_original/
-        ├── 02_clahe/
-        └── 03_clahe_gsam/
+        ├── 02_denoise_clahe/
+        └── 03_denoise_clahe_gsam/
             └── {train,val,test}/<class>/<id>.jpg   # same images in every dataset
 ```
 
@@ -40,8 +44,8 @@ image-processing-project/
 | dataset | preprocessing |
 |---|---|
 | `01_original` | resized photo (baseline) |
-| `02_clahe` | `01_original` + CLAHE on the lightness channel |
-| `03_clahe_gsam` | `02_clahe` + Grounded-SAM: food masked, grey background, cropped to food |
+| `02_denoise_clahe` | `01_original` + wavelet denoise, then CLAHE on the lightness channel |
+| `03_denoise_clahe_gsam` | `02_denoise_clahe` + Grounded-SAM: food masked, grey background, cropped to food |
 
 ## Only 3 rules
 1. **Don't re-split.** Use the `train/ val/ test/` folders as given.
@@ -51,6 +55,6 @@ image-processing-project/
 ## Quick start
 ```bash
 uv pip install --python .venv/bin/python -r requirements.txt
-.venv/bin/python pipeline_preprocess/pipeline_02.py   # data engineer only (not written yet)
+.venv/bin/python pipeline_preprocess/pipeline_02.py   # data engineer only
 sha256sum data/dataset/meta/manifest.csv              # same hash for everyone = same split
 ```

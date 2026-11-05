@@ -20,7 +20,7 @@
 
 ## ถ้าเทรนบน Colab: ไม่ต้องโหลดลงเครื่อง
 
-แตก zip จาก Drive ลง Colab ได้เลย ทำตาม "ส่วนที่ 6" ใน `pipeline_preprocess/COLAB_GUIDE.md`
+แตก zip จาก Drive ลง Colab ได้เลย ทำตาม "ส่วนที่ 6" ใน `doc/legacy/COLAB_GUIDE.md`
 
 ## ถ้าใช้ในเครื่อง
 

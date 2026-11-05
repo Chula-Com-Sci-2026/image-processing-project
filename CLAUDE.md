@@ -14,9 +14,10 @@ Team: 2 data scientists, 1 data engineer (data preparation & transforms), 1 soft
 
 ## Project layout
 See the folder tree in `README.md`. In short:
-- `pipeline_preprocess/pipeline_02.py`: builds the 3 datasets in `data/dataset/`. All constants (classes, seed, ratios, sizes, model IDs) sit at the top of the file. The plan, step by step, is in `pipeline_preprocess/pipeline_02.md`. Keep the two in sync.
+- `pipeline_preprocess/pipeline_02.py`: builds the 3 datasets in `data/dataset/`. All constants (classes, seed, ratios, sizes, model IDs) sit at the top of the file. The plan, step by step, is in `doc/pipeline/pipeline_02.md`. Keep the two in sync.
 - `pipeline_preprocess/pipeline_01.py` and `data/preprocessing_data/`: the old process (5 confusable pairs, 675/75/250 split). Replaced on 2026-11-03. Don't build on it.
 - `analyst/`: notebooks for looking at images, masks and stats (figures for slides).
+- `doc/`: every md except CLAUDE.md and README.md. `pipeline/` current process, `analysis/` findings, `references/` citations, `legacy/` old process.
 - `data/raw_data/`: Food-101 as downloaded. `data/dataset/`: the datasets for the team.
 
 ## Datasets for the team
@@ -25,10 +26,10 @@ Each dataset is built from the one before it. All three hold the same images und
 | # | folder | built from | what changes |
 |---|---|---|---|
 | 1 | `01_original` | Food-101 raw | 10 dark classes, noise removed, 60/20/20 split, resized |
-| 2 | `02_clahe` | dataset 1 | CLAHE |
-| 3 | `03_clahe_gsam` | dataset 2 | Grounded-SAM: food kept, grey background, cropped to food |
+| 2 | `02_denoise_clahe` | dataset 1 | wavelet denoise → CLAHE |
+| 3 | `03_denoise_clahe_gsam` | dataset 2 | Grounded-SAM: food kept, grey background, cropped to food |
 
-1 vs 2 measures CLAHE. 2 vs 3 measures segmentation with CLAHE held fixed, which answers the research question.
+The course requires 3 preprocessing methods: noise removal (wavelet), enhancement (CLAHE), segmentation (Grounded-SAM), matching the lecture notes §10.1. 1 vs 2 measures denoise + CLAHE together. 2 vs 3 measures segmentation with them held fixed, which answers the research question. Classifiers (zero-shot, classical, CNN, Transformer) are trained by the rest of the team.
 
 ## Fixed protocol
 | item | value |
@@ -39,6 +40,7 @@ Each dataset is built from the one before it. All three hold the same images und
 | Balance | pool clean train + test per class; N = smallest class count (**PENDING**); sample N per class, seed 42 |
 | Split | 60 / 20 / 20 train / val / test per class |
 | Stored size | short side 256 px, JPEG q95 |
+| Denoise | `skimage` `denoise_wavelet`, BayesShrink, soft, YCbCr, `rescale_sigma=True` (before CLAHE) |
 | CLAHE | L channel of LAB, clip 2.0, tile 8×8 |
 | Grounded-SAM | Grounding DINO tiny ("food.", box 0.30, text 0.25) + SAM ViT-B |
 | Fill colour | ImageNet mean grey (124,116,104) for the mask background |
@@ -64,7 +66,8 @@ Rules:
 ## Commands
 ```bash
 uv pip install --python .venv/bin/python -r requirements.txt
-.venv/bin/python pipeline_preprocess/pipeline_02.py        # not written yet
+.venv/bin/python pipeline_preprocess/pipeline_02.py --steps brightness flag   # then human review
+.venv/bin/python pipeline_preprocess/pipeline_02.py --steps build
 sha256sum data/dataset/meta/manifest.csv                   # everyone must get the same hash
 ```
 

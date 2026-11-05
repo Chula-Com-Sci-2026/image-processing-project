@@ -1,4 +1,4 @@
-"""Preprocessing pipeline 02: dark-class datasets. Plan and reasons: pipeline_02.md.
+"""Preprocessing pipeline 02: dark-class datasets. Plan and reasons: doc/pipeline/pipeline_02.md.
 
     python pipeline_preprocess/pipeline_02.py --steps brightness flag   # CPU, then review by hand
     python pipeline_preprocess/pipeline_02.py --steps build             # after review
@@ -8,7 +8,8 @@ Output  data/dataset/
           meta/brightness.csv              mean grey level of every Food-101 image (class selection)
           meta/clip_flags.csv              CLIP + duplicate flags; reviewer fills `decision`
           meta/duplicates.csv              near-duplicate pairs
-          meta/review/*.jpg                contact sheets of flagged images
+          meta/review/*_p<n>.jpg           contact sheets of flagged images
+          meta/clip_cache.npz              CLIP probabilities + embeddings (re-flag without re-running CLIP)
           meta/removed.csv                 images removed, with reason
           meta/class_counts.csv            images per class after cleaning; N = min
           meta/manifest.csv                relpath,label,split,source (same for every dataset)
@@ -51,7 +52,10 @@ DARK_LEVEL = 80                   # image mean grey below this counts as "dark" 
 CLIP_ID = "openai/clip-vit-base-patch16"
 NONFOOD = ["a person", "text or a menu", "a restaurant interior", "a drink", "a kitchen"]
 WRONG_P = 0.05                    # flag when CLIP picks another class and p(label) < this
-DUP_COS = 0.95                    # CLIP embedding cosine above this = near-duplicate
+# CLIP embedding cosine above this = possible near-duplicate, decided in review. Checked by eye
+# (2026-11-05): below ~0.975 pairs are different photos (edamame all looks alike), real
+# duplicates (re-cropped / colour-shifted) start at ~0.976, above 0.98 almost all are the same photo.
+DUP_COS = 0.97
 
 SEED = 42
 RATIOS = {"train": 0.6, "val": 0.2}   # test = the rest
@@ -126,10 +130,18 @@ def step_brightness(src):
 
 # =============================================================== step 2: flag
 def _clip_scores(pool, img_dir):
-    import torch
-    from transformers import CLIPModel, CLIPProcessor
+    """Cached in meta/clip_cache.npz, so thresholds can change without re-running CLIP (~35 min on CPU)."""
+    cache = META_DIR / "clip_cache.npz"
     prompts = [f"a photo of {c.replace('_', ' ')}, a type of food." for c in CLASSES]
     prompts += [f"a photo of {n}." for n in NONFOOD]
+    keys = np.array([f"{c}/{k}" for c, k, _ in pool])
+    if cache.exists():
+        z = np.load(cache)
+        if np.array_equal(z["keys"], keys) and list(z["prompts"]) == prompts:
+            print("[flag] using cached CLIP scores")
+            return z["probs"], z["emb"], prompts
+    import torch
+    from transformers import CLIPModel, CLIPProcessor
     model, proc = CLIPModel.from_pretrained(CLIP_ID).eval(), CLIPProcessor.from_pretrained(CLIP_ID)
     # transformers >= 5 returns an output object with the embedding in pooler_output, older versions a tensor
     unit = lambda out: (lambda x: x / x.norm(dim=-1, keepdim=True))(getattr(out, "pooler_output", out))
@@ -143,7 +155,9 @@ def _clip_scores(pool, img_dir):
             embs.append(v.numpy())
             if i % 1280 == 0:
                 print(f"[flag] CLIP {i}/{len(pool)}", flush=True)
-    return np.concatenate(probs), np.concatenate(embs), prompts
+    probs, embs = np.concatenate(probs), np.concatenate(embs)
+    np.savez(cache, keys=keys, prompts=np.array(prompts), probs=probs, emb=embs)
+    return probs, embs, prompts
 
 
 def _duplicates(pool, emb):
@@ -160,20 +174,22 @@ def _duplicates(pool, emb):
     return pairs
 
 
-def _sheet(items, img_dir, path, tile=160):
-    """items: [(class, id, caption)] -> numbered grid, 10 per row."""
-    cols, rows = 10, (len(items) + 9) // 10
-    sheet = Image.new("RGB", (cols * tile, rows * (tile + 28)), "white")
-    draw = ImageDraw.Draw(sheet)
-    for n, (cls, img_id, cap) in enumerate(items):
-        im = Image.open(os.path.join(img_dir, cls, f"{img_id}.jpg")).convert("RGB")
-        im.thumbnail((tile, tile))
-        x, y = (n % cols) * tile, (n // cols) * (tile + 28)
-        sheet.paste(im, (x, y))
-        draw.text((x + 2, y + tile), f"{n + 1}. {img_id}", fill="black")
-        draw.text((x + 2, y + tile + 13), cap[:26], fill="red")
+def _sheet(items, img_dir, path, tile=160, per_page=100):
+    """items: [(class, id, caption)] -> numbered grids, 10 per row, <name>_p1.jpg, _p2.jpg, ..."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    sheet.save(path, quality=90)
+    for page, start in enumerate(range(0, len(items), per_page), 1):
+        chunk = items[start:start + per_page]
+        cols, rows = 10, (len(chunk) + 9) // 10
+        sheet = Image.new("RGB", (cols * tile, rows * (tile + 28)), "white")
+        draw = ImageDraw.Draw(sheet)
+        for n, (cls, img_id, cap) in enumerate(chunk):
+            im = Image.open(os.path.join(img_dir, cls, f"{img_id}.jpg")).convert("RGB")
+            im.thumbnail((tile, tile))
+            x, y = (n % cols) * tile, (n // cols) * (tile + 28)
+            sheet.paste(im, (x, y))
+            draw.text((x + 2, y + tile), f"{start + n + 1}. {img_id}", fill="black")
+            draw.text((x + 2, y + tile + 13), cap[:26], fill="red")
+        sheet.save(path.with_name(f"{path.stem}_p{page}.jpg"), quality=90)
 
 
 def step_flag(src):
@@ -285,17 +301,14 @@ def step_build(src):
         if i % 2000 == 0:
             print(f"[build] {i}/{len(plan)}")
 
-    # checks: counts per split/class, no key in two splits, no kept duplicate pair across splits
+    # checks: counts per split/class, no key in two splits. A flagged pair with both images kept
+    # was judged "not a duplicate" in review, so it may cross splits.
     got = Counter((m["split"], m["label"]) for m in manifest)
     if any(got[(s, c)] != sizes[s] for s in sizes for c in CLASSES):
         raise SystemExit(f"[build] STOP: unexpected counts {dict(got)}")
     split_of = {f"{m['label']}/{Path(m['relpath']).stem}": m["split"] for m in manifest}
     if len(split_of) != len(manifest):
         raise SystemExit("[build] STOP: an image appears twice")
-    for d in read_csv(META_DIR / "duplicates.csv"):
-        a, b = split_of.get(d["drop"]), split_of.get(d["keep"])
-        if a and b and a != b:
-            raise SystemExit(f"[build] STOP: duplicate pair across splits {d['drop']} ({a}) / {d['keep']} ({b})")
     write_csv(MANIFEST, manifest, ["relpath", "label", "split", "source"])
     print("[build] done:", dict(Counter(m["split"] for m in manifest)))
 
