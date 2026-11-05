@@ -4,6 +4,7 @@
     python pipeline_preprocess/pipeline_02.py --steps build             # after review
     python pipeline_preprocess/pipeline_02.py --steps denoise_clahe     # dataset 2, CPU
     python pipeline_preprocess/pipeline_02.py --steps gsam              # dataset 3, GPU (Colab: doc/pipeline/COLAB_GUIDE.md)
+    python pipeline_preprocess/pipeline_02.py --steps zip               # one self-contained zip per built dataset
 
 Input   data/raw_data/                     Food-101 as downloaded (any nesting)
 Output  data/dataset/
@@ -19,6 +20,7 @@ Output  data/dataset/
           02_denoise_clahe/{train,val,test}/<class>/<id>.jpg   wavelet denoise -> CLAHE, from 01_original
           03_denoise_clahe_gsam/{train,val,test}/<class>/<id>.jpg   Grounded-SAM on 02: food kept, grey background, cropped
           meta/gsam_boxes.json, meta/gsam_stats.csv   Grounding DINO boxes; mask area + fallback per image
+          zips/<dataset>.zip               images + meta/ (manifest, counts, removals) + README_<dataset>.md
 Checkpoints  data/checkpoints/             gsam progress, or FOOD_CHECKPOINT_DIR (a Drive folder on Colab)
 
 Steps
@@ -27,10 +29,12 @@ Steps
   build          apply review decisions, balance to N per class, split 60/20/20, resize
   denoise_clahe  dataset 2: wavelet denoise (BayesShrink) then CLAHE on L of LAB
   gsam           dataset 3: Grounding DINO ("food.") boxes -> SAM ViT-B mask, on dataset 2 (needs CUDA)
+  zip            zip every built dataset so teammates need nothing else (no git)
 """
 import argparse
 import csv
 import glob
+import hashlib
 import json
 import os
 import random
@@ -508,11 +512,82 @@ def step_gsam(device):
     print(f"[gsam] done: {len(stats)} images, fallback rate {rate:.1%} {by_split}")
 
 
+# =============================================================== step 6: zip for the team
+DATASETS = {
+    "01_original": "ภาพต้นฉบับที่ resize แล้ว (baseline) ยังไม่ผ่าน preprocessing ใด ๆ",
+    "02_denoise_clahe": "dataset 1 + wavelet denoise (BayesShrink) แล้วตามด้วย CLAHE บนช่อง L ของ LAB",
+    "03_denoise_clahe_gsam": "dataset 2 + Grounded-SAM: เก็บเฉพาะอาหาร พื้นหลังเป็นสีเทา (124,116,104) แล้ว crop ให้เหลือแต่อาหาร",
+}
+ZIP_META = ["manifest.csv", "class_counts.csv", "removed.csv"]
+
+
+def _dataset_readme(name, rows, digest):
+    per = Counter((r["split"], r["label"]) for r in rows)
+    split = " · ".join(f"{sp} {per[(sp, CLASSES[0])]}" for sp in ("train", "val", "test"))
+    total = " · ".join(f"{sp} {sum(v for (s_, _), v in per.items() if s_ == sp):,}" for sp in ("train", "val", "test"))
+    lines = [
+        f"# {name}", "", DATASETS[name], "",
+        f"- {len(rows):,} ภาพ, 10 คลาส: {', '.join(CLASSES)}",
+        f"- ต่อคลาส: {split}", f"- รวม: {total}",
+        "- ทุก dataset มีภาพชุดเดียวกันใน split เดียวกัน ต่างกันแค่ preprocessing",
+        "- ตัด noise (label ผิด, ไม่ใช่อาหาร, ภาพซ้ำ) ออกแล้ว รายการอยู่ใน `meta/removed.csv`", "",
+        "## วิธีใช้", "",
+        "แตก zip ที่โฟลเดอร์ `data/dataset/` จะได้", "",
+        "```", f"data/dataset/{name}/{{train,val,test}}/<class>/<id>.jpg", "data/dataset/meta/manifest.csv   relpath,label,split,source",
+        "```", "",
+        "ตรวจว่าได้ข้อมูลชุดเดียวกับทุกคน:", "",
+        "```", "sha256sum data/dataset/meta/manifest.csv", digest, "```", "",
+        "`source` ใน manifest บอกว่าภาพมาจาก Food-101 official train หรือ official test (รวมกันแล้วแบ่งใหม่ 60/20/20, seed 42)", "",
+        "## กติกา", "",
+        "1. ห้ามแบ่ง train/val/test ใหม่ ใช้ตามโฟลเดอร์",
+        "2. ภายในโมเดลเดียวกัน ทุก dataset ต้องใช้ค่าตั้งเดียวกัน",
+        "3. เลือก epoch และ hyper-parameter ด้วย val macro-F1 แล้วประเมิน test ครั้งเดียว รายงาน accuracy และ macro P/R/F1", "",
+        "## dataset ทั้ง 3 ชุด", "", "| dataset | preprocessing |", "|---|---|",
+        *[f"| `{n}` | {d} |" for n, d in DATASETS.items()],
+    ]
+    if name == "03_denoise_clahe_gsam":
+        st = read_csv(META_DIR / "gsam_stats.csv")
+        rate = {sp: sum(int(r["fallback"]) for r in st if r["split"] == sp) / max(1, sum(r["split"] == sp for r in st))
+                for sp in ("train", "val", "test")}
+        lines += ["", "## Fallback", "",
+                  "ภาพที่ mask เล็กกว่า 5% ของภาพถือว่า segment ไม่สำเร็จ และใช้ภาพจาก dataset 2 แทน (`fallback = 1` ใน `meta/gsam_stats.csv`)", "",
+                  "fallback rate: " + " · ".join(f"{sp} {v:.1%}" for sp, v in rate.items()), "",
+                  "mask บางภาพอาจผิดโดยไม่ถูกนับเป็น fallback เช่น ตัดอาหารสีเข้มทิ้งแต่เก็บพื้นหลังไว้ ให้ระวังตอนอ่านผล"]
+    lines += ["", "รายละเอียดทั้งหมด: `doc/pipeline/pipeline_02.md` ใน repo", ""]
+    return "\n".join(lines)
+
+
+def step_zip():
+    rows = read_csv(MANIFEST)
+    digest = hashlib.sha256(MANIFEST.read_bytes()).hexdigest()
+    for name in DATASETS:
+        d = OUT_DIR / name
+        if not d.is_dir():
+            print(f"[zip] {name} not built, skipping")
+            continue
+        meta = ZIP_META + (["gsam_stats.csv"] if name == "03_denoise_clahe_gsam" else [])
+        missing = [r["relpath"] for r in rows if not (d / r["relpath"]).exists()]
+        missing += [f"meta/{m}" for m in meta if not (META_DIR / m).exists()]
+        if missing:
+            raise SystemExit(f"[zip] STOP: {name}: {len(missing)} files missing, e.g. {missing[:2]}")
+
+        def write(tmp):
+            with zipfile.ZipFile(tmp, "w", zipfile.ZIP_STORED) as z:   # JPEG is already compressed
+                z.writestr(f"README_{name}.md", _dataset_readme(name, rows, digest))
+                for m in meta:
+                    z.write(META_DIR / m, f"meta/{m}")
+                for r in rows:
+                    z.write(d / r["relpath"], f"{name}/{r['relpath']}")
+        out = OUT_DIR / "zips" / f"{name}.zip"
+        _write_atomic(out, write)
+        print(f"[zip] {out}  {out.stat().st_size / 1e6:.0f} MB  {len(rows)} images + {len(meta)} meta files")
+
+
 # =============================================================== main
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--steps", nargs="+", default=["brightness", "flag", "build", "denoise_clahe", "gsam"],
-                    choices=["brightness", "flag", "build", "denoise_clahe", "gsam"])
+                    choices=["brightness", "flag", "build", "denoise_clahe", "gsam", "zip"])
     ap.add_argument("--src", default=str(RAW_DATA_DIR))
     ap.add_argument("--device", default="cuda", help="gsam only; 'cpu' is far too slow for the full set")
     a = ap.parse_args()
@@ -528,6 +603,8 @@ def main():
         step_denoise_clahe()
     if "gsam" in a.steps:
         step_gsam(a.device)
+    if "zip" in a.steps:
+        step_zip()
 
 
 if __name__ == "__main__":

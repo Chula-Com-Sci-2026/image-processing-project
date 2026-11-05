@@ -239,6 +239,15 @@ By original brightness (thirds of the same 1,000 images):
 
 The fallback rule (mask < 5% of the image) doesn't catch these, because the mask is big enough but on the wrong area. Dark food on a dark container is exactly what these classes contain, so expect more of this than in the old trial. To state in the report: a gain or loss in 2 vs 3 includes the effect of wrong masks, not only of removing the background. Checking mask quality on a random sample of dataset 3 (count obviously wrong masks per class) would make this measurable.
 
+## 4b. Delivery to the team: one zip per dataset
+
+`--steps zip` writes `data/dataset/zips/<dataset>.zip` for every built dataset. Teammates need nothing else, no git (decided 2026-11-05):
+- `<dataset>/{train,val,test}/<class>/<id>.jpg`
+- `meta/manifest.csv`, `meta/class_counts.csv`, `meta/removed.csv` (+ `meta/gsam_stats.csv` in dataset 3)
+- `README_<dataset>.md`: what the dataset is, counts, the manifest hash, the 3 rules (+ fallback rate for dataset 3)
+
+All zips unpack into the same `data/dataset/` folder. Their `meta/` files are identical, so overwriting is harmless. The zips go to Drive `dip-project/dataset_zips/` (`doc/pipeline/COLAB_GUIDE.md`).
+
 ## 5. Rules for everyone (unchanged)
 
 - Don't re-split. Use the given train/val/test folders.

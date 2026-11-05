@@ -27,26 +27,21 @@ Colab จะ clone repo จาก `main` ต้องมี step `gsam` ใน `
 
 ### 2. อัปโหลด zip ขึ้น Drive
 
-zip ถูกสร้างไว้แล้วที่ `data/dataset/zips/` ในเครื่อง
+สร้าง zip ด้วยคำสั่งนี้ที่ root ของ repo (ถ้า rebuild dataset ให้รันใหม่):
+
+```bash
+.venv/bin/python pipeline_preprocess/pipeline_02.py --steps zip
+```
+
+ได้ไฟล์ใน `data/dataset/zips/` แต่ละ zip ใช้ได้ทันทีโดยไม่ต้องใช้ git: มีภาพ, `meta/` (`manifest.csv`, `class_counts.csv`, `removed.csv`) และ `README_<dataset>.md` ที่อธิบาย dataset, hash และกติกา
 
 | ไฟล์ | ขนาด | ใช้ทำอะไร |
 |---|---|---|
-| `02_denoise_clahe.zip` | 393 MB | input ของ step `gsam` (**ต้องมี**) |
-| `01_original.zip` | 332 MB | ให้เพื่อนในทีมใช้ ไม่ได้ใช้ใน Colab |
+| `02_denoise_clahe.zip` | 393 MB | input ของ step `gsam` (**ต้องมี**) และให้เพื่อนในทีมใช้ |
+| `01_original.zip` | 333 MB | ให้เพื่อนในทีมใช้ ไม่ได้ใช้ใน Colab |
 
 1. สร้างโฟลเดอร์ `dataset_zips` ใน `MyDrive/2110651-digital-images-processing/2110651-digital-images-project/workspace/dip-project/`
 2. อัปโหลดทั้งสองไฟล์ลงในโฟลเดอร์นั้น
-
-ถ้าต้องการสร้าง zip ใหม่ (เช่น หลัง rebuild dataset) ให้รันคำสั่งนี้ที่ root ของ repo:
-
-```bash
-.venv/bin/python -c "
-import zipfile, csv; from pathlib import Path
-D = Path('data/dataset'); rels = [r['relpath'] for r in csv.DictReader(open(D / 'meta/manifest.csv'))]
-for name in ['01_original', '02_denoise_clahe']:
-    with zipfile.ZipFile(D / 'zips' / f'{name}.zip', 'w', zipfile.ZIP_STORED) as z:
-        for r in rels: z.write(D / name / r, f'{name}/{r}')"
-```
 
 ## ส่วนที่ 2: สร้าง notebook
 
@@ -112,10 +107,12 @@ os.environ.update(FOOD_DATA_DIR="/content/repo/data",
 รันทันทีที่ Cell 3 จบ ไม่อย่างนั้นถ้า session หลุด ภาพจะหาย
 
 ```python
-!cd {DATA} && zip -0 -qr /content/03_denoise_clahe_gsam.zip 03_denoise_clahe_gsam   # -0: JPEG is already compressed
-!cp /content/03_denoise_clahe_gsam.zip {DATA}/meta/gsam_stats.csv {DATA}/meta/gsam_boxes.json {SAVE}/
+!python pipeline_preprocess/pipeline_02.py --steps zip
+!cp {DATA}/zips/03_denoise_clahe_gsam.zip {DATA}/meta/gsam_stats.csv {DATA}/meta/gsam_boxes.json {SAVE}/
 !ls -lh {SAVE}
 ```
+
+step `zip` จะสร้าง zip ของทุก dataset ที่มีอยู่บน Colab แต่ copy ขึ้น Drive เฉพาะ `03_denoise_clahe_gsam.zip` ก็พอ zip นี้มี `meta/gsam_stats.csv` และ README ที่บอก fallback rate อยู่แล้ว
 
 **เช็ก:** ต้องเห็น `03_denoise_clahe_gsam.zip`, `gsam_stats.csv` และ `gsam_boxes.json` ใน `SAVE`
 
@@ -139,7 +136,7 @@ print(st.mask_area.describe().round(3))
 ### 7. นำผลกลับมาที่เครื่องตัวเองแล้ว commit
 
 1. โหลด `gsam_stats.csv` และ `gsam_boxes.json` จาก `dataset_zips/` บน Drive มาไว้ที่ `data/dataset/meta/`
-2. โหลด `03_denoise_clahe_gsam.zip` แล้วแตกที่ `data/dataset/` จะได้ `data/dataset/03_denoise_clahe_gsam/`
+2. โหลด `03_denoise_clahe_gsam.zip` แล้วแตกที่ `data/dataset/` จะได้ `data/dataset/03_denoise_clahe_gsam/` (ไฟล์ใน `meta/` ของ zip เหมือนกับในเครื่อง เขียนทับได้)
 3. Commit `gsam_stats.csv` และ `gsam_boxes.json` (git ignore ภาพไว้อยู่แล้ว)
 4. บันทึก fallback rate ลงใน section 4 ของ `doc/pipeline/pipeline_02.md`
 
@@ -160,16 +157,18 @@ print(st.mask_area.describe().round(3))
 
 ### 1. เอา dataset มาใช้
 
-1. `git pull` repo จะได้ `data/dataset/meta/` (`manifest.csv`, `gsam_stats.csv` และอื่น ๆ)
-2. โหลด zip ของ dataset ที่ต้องการจาก `dip-project/dataset_zips/` บน Drive แล้วแตกที่ `data/dataset/`
+ไม่ต้องใช้ git ทุกอย่างอยู่ใน zip
 
-| dataset | zip |
-|---|---|
-| 1 | `01_original.zip` |
-| 2 | `02_denoise_clahe.zip` |
-| 3 | `03_denoise_clahe_gsam.zip` |
+1. โหลด zip ของ dataset ที่ต้องการจาก `dip-project/dataset_zips/` บน Drive
+2. แตกทุก zip ที่โฟลเดอร์เดียวกัน `data/dataset/` (`meta/` ของทุก zip เหมือนกัน เขียนทับได้)
+3. อ่าน `README_<dataset>.md` ที่ได้จาก zip
+4. ตรวจด้วย `sha256sum data/dataset/meta/manifest.csv` ต้องได้ `79eb1d1cf8a475b8deaa2a301acc64a1c3a334fd4a289c8d45af91c359c3c2a4`
 
-3. ตรวจด้วย `sha256sum data/dataset/meta/manifest.csv` ต้องได้ `79eb1d1c…` (ค่าเต็มอยู่ใน Cell 2)
+| dataset | zip | มีอะไร |
+|---|---|---|
+| 1 | `01_original.zip` | `01_original/`, `meta/`, `README_01_original.md` |
+| 2 | `02_denoise_clahe.zip` | `02_denoise_clahe/`, `meta/`, `README_02_denoise_clahe.md` |
+| 3 | `03_denoise_clahe_gsam.zip` | `03_denoise_clahe_gsam/`, `meta/` (+ `gsam_stats.csv`), `README_03_denoise_clahe_gsam.md` |
 
 บน Colab ให้แตก zip ลงใน `/content` แทนการอ่านจาก Drive โดยตรง เช่น `!unzip -q -o <path ใน Drive>/02_denoise_clahe.zip -d /content/data/dataset`
 
