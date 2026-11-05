@@ -2,6 +2,7 @@
 
     python pipeline_preprocess/pipeline_02.py --steps brightness flag   # CPU, then review by hand
     python pipeline_preprocess/pipeline_02.py --steps build             # after review
+    python pipeline_preprocess/pipeline_02.py --steps denoise_clahe     # dataset 2, CPU
 
 Input   data/raw_data/                     Food-101 as downloaded (any nesting)
 Output  data/dataset/
@@ -14,11 +15,13 @@ Output  data/dataset/
           meta/class_counts.csv            images per class after cleaning; N = min
           meta/manifest.csv                relpath,label,split,source (same for every dataset)
           01_original/{train,val,test}/<class>/<id>.jpg
+          02_denoise_clahe/{train,val,test}/<class>/<id>.jpg   wavelet denoise -> CLAHE, from 01_original
 
 Steps
   brightness  record mean brightness of all 101 classes (the class list below is fixed, not re-ranked)
   flag        CLIP zero-shot flags on official train, near-duplicates on the whole pool, review sheets
-  build       apply review decisions, balance to N per class, split 60/20/20, resize
+  build          apply review decisions, balance to N per class, split 60/20/20, resize
+  denoise_clahe  dataset 2: wavelet denoise (BayesShrink) then CLAHE on L of LAB
 """
 import argparse
 import csv
@@ -61,6 +64,10 @@ SEED = 42
 RATIOS = {"train": 0.6, "val": 0.2}   # test = the rest
 STORE_SHORT_SIDE = 256
 JPEG_QUALITY = 95
+
+# dataset 2 (doc section 3); same values as analyst/preprocess_compare.ipynb
+WAVELET = dict(method="BayesShrink", mode="soft", rescale_sigma=True)
+CLAHE_CLIP, CLAHE_TILE = 2.0, 8
 
 
 def write_csv(path, rows, fields):
@@ -313,11 +320,51 @@ def step_build(src):
     print("[build] done:", dict(Counter(m["split"] for m in manifest)))
 
 
+# =============================================================== step 4: denoise + CLAHE
+def wavelet_denoise(bgr):
+    from skimage.restoration import denoise_wavelet
+    # convert2ycbcr expects RGB order; denoising Y, Cb, Cr separately avoids colour noise blotches
+    rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB) / 255.0
+    den = denoise_wavelet(rgb, channel_axis=-1, convert2ycbcr=True, **WAVELET)
+    return cv2.cvtColor((np.clip(den, 0, 1) * 255).round().astype(np.uint8), cv2.COLOR_RGB2BGR)
+
+
+def clahe(bgr):
+    # lightness only: equalising R,G,B separately would shift food colours
+    l, a, b = cv2.split(cv2.cvtColor(bgr, cv2.COLOR_BGR2LAB))
+    l = cv2.createCLAHE(clipLimit=CLAHE_CLIP, tileGridSize=(CLAHE_TILE, CLAHE_TILE)).apply(l)
+    return cv2.cvtColor(cv2.merge([l, a, b]), cv2.COLOR_LAB2BGR)
+
+
+def _denoise_clahe_one(rel):
+    src, dst = OUT_DIR / "01_original" / rel, OUT_DIR / "02_denoise_clahe" / rel
+    if dst.exists():                        # resume after an interrupted run
+        return
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    cv2.imwrite(str(dst), clahe(wavelet_denoise(cv2.imread(str(src)))), [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
+
+
+def step_denoise_clahe():
+    if not MANIFEST.exists():
+        raise SystemExit("[denoise_clahe] manifest.csv missing: run --steps build first")
+    rels = [m["relpath"] for m in read_csv(MANIFEST)]
+    with Pool() as pool:
+        for i, _ in enumerate(pool.imap_unordered(_denoise_clahe_one, rels, chunksize=32)):
+            if i % 2000 == 0:
+                print(f"[denoise_clahe] {i}/{len(rels)}", flush=True)
+    out = OUT_DIR / "02_denoise_clahe"
+    missing = [r for r in rels if not (out / r).exists()]
+    extra = {str(f.relative_to(out)) for f in out.glob("*/*/*.jpg")} - set(rels)
+    if missing or extra:
+        raise SystemExit(f"[denoise_clahe] STOP: {len(missing)} missing, {len(extra)} not in manifest")
+    print(f"[denoise_clahe] done: {len(rels)} images")
+
+
 # =============================================================== main
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--steps", nargs="+", default=["brightness", "flag", "build"],
-                    choices=["brightness", "flag", "build"])
+    ap.add_argument("--steps", nargs="+", default=["brightness", "flag", "build", "denoise_clahe"],
+                    choices=["brightness", "flag", "build", "denoise_clahe"])
     ap.add_argument("--src", default=str(RAW_DATA_DIR))
     a = ap.parse_args()
 
@@ -328,6 +375,8 @@ def main():
         step_flag(a.src)
     if "build" in a.steps:
         step_build(a.src)
+    if "denoise_clahe" in a.steps:
+        step_denoise_clahe()
 
 
 if __name__ == "__main__":

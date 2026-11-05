@@ -2,7 +2,7 @@
 
 This replaces the old data process in `pipeline_01.py` (5 confusable pairs, 675/75/250 split). The team agreed to the change on 2026-11-03. The data engineer builds the datasets, and everyone else only reads them.
 
-**Status (2026-11-05):** process 1 done, `01_original` built. Processes 2 and 3 not built yet. Values marked **PENDING** become known after a step runs.
+**Status (2026-11-05):** processes 1 and 2 done (`01_original`, `02_denoise_clahe` built). Process 3 not built yet. Values marked **PENDING** become known after a step runs.
 
 ## 1. What the team gets
 
@@ -193,6 +193,31 @@ Ruled out (`analyst/preprocess_compare.ipynb`):
 - unsharp mask, high-boost, and either one combined with CLAHE: noise σ goes up 4–5× (1.5 → 5.6–7.6), and they don't brighten the image.
 - global hist-eq and gamma: they stretch near-black areas until the 8×8 JPEG blocks show. CLAHE's clip limit prevents this.
 - contrast stretch → CLAHE: a second enhancement step on top of CLAHE. It adds a step without adding a new kind of pre-processing.
+
+### Result (`--steps denoise_clahe`, 2026-11-05)
+
+- 1 min 41 s on CPU (12 processes, ~34 ms per image). 393 MB.
+- Same output as the notebook functions (max pixel difference 0 on a test image).
+- Checks: all 9,630 manifest images exist in `02_denoise_clahe` with the same relpath and the same size as in `01_original`. No extra files.
+
+Measured on 1,000 random train images (the 10-image numbers in `doc/analysis/preprocess_metrics.md` were dark images only):
+
+| | brightness (mean L) | contrast (std L) | Laplacian variance | noise σ |
+|---|---|---|---|---|
+| `01_original` | 111.4 | 63.8 | 878 | 1.99 |
+| `02_denoise_clahe` | 121.5 | 66.8 | 1773 | 2.85 |
+
+By original brightness (thirds of the same 1,000 images):
+
+| | L before | L after | σ before | σ after |
+|---|---|---|---|---|
+| darkest third | 80.8 | 98.8 | 1.89 | 2.76 |
+| middle third | 111.9 | 122.8 | 1.99 | 2.86 |
+| brightest third | 141.6 | 143.1 | 2.10 | 2.92 |
+
+- CLAHE brightens mostly the dark images (+18 L in the darkest third, +1.5 in the brightest), as intended.
+- Noise still rises by ~0.85 σ in every third: denoising first limits the increase but doesn't cancel it.
+- Laplacian variance doubles: overall, local contrast (edges, texture) goes **up**. The texture lost to the wavelet step is smaller than what CLAHE adds back. Part of the increase is noise.
 
 ### To state in the report
 - 1 vs 2 measures denoise + CLAHE together. We can't say which of the two caused a gain or loss.
