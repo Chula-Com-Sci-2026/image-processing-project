@@ -86,7 +86,36 @@ All metrics except noise σ are computed on L of LAB (0–255).
 
 **Outcome:** dataset 2 = wavelet denoise → CLAHE (decided 2026-11-05, `doc/pipeline/pipeline_02.md` section 3). Unsharp, high-boost, hist-eq and gamma are ruled out.
 
+## Check on the built datasets (1,000 train images)
+
+After building dataset 2, the same four metrics were measured on the stored JPEGs of `01_original` and `02_denoise_clahe` (2026-11-05).
+
+| item | value |
+|---|---|
+| Images | 1,000 drawn at random from the **train** split of the manifest (`pandas.sample(1000, random_state=0)`) |
+| Pool | all brightness levels, not only dark images |
+| Pairs | the same 1,000 relpaths in both datasets |
+| Values | mean over the 1,000 images |
+
+| dataset | brightness | contrast | Laplacian variance | noise σ |
+|---|---|---|---|---|
+| `01_original` | 111.4 | 63.8 | 878 | 1.99 |
+| `02_denoise_clahe` | 121.5 | 66.8 | 1773 | 2.85 |
+
+Split by the original brightness (thirds of the same 1,000 images):
+
+| third | brightness before | brightness after | noise σ before | noise σ after |
+|---|---|---|---|---|
+| darkest | 80.8 | 98.8 | 1.89 | 2.76 |
+| middle | 111.9 | 122.8 | 1.99 | 2.86 |
+| brightest | 141.6 | 143.1 | 2.10 | 2.92 |
+
+- **CLAHE adapts to each image:** the darkest third gains +18 brightness, the brightest only +1.5.
+- **Noise rises by about 0.85 σ in every third** (+43% overall). Denoising first limits the rise but doesn't cancel it. On the 10 dark images the rise was similar (1.50 → 2.36).
+- **Laplacian variance doubles** (878 → 1773). Overall, edges and texture get stronger: the texture the wavelet step removes is less than what CLAHE adds. Part of the increase is noise.
+- **Why the numbers differ from the 10-image table:** that table used only dark images (mean brightness 64.6). Here most images are already bright (mean 111.4), so the brightness gain is smaller.
+
 ## Limits
 
-- 10 images, one draw (`SEED = 0`). The direction of each effect is clear in the figures, but the exact numbers would change with another draw.
+- 10 images, one draw (`SEED = 0`). The direction of each effect is clear in the figures, but the exact numbers would change with another draw. The 1,000-image check above confirms the direction for denoise + CLAHE.
 - Pixel statistics do not measure classification accuracy. Whether denoise + CLAHE helps is measured when the team trains on datasets 1 and 2.
