@@ -3,6 +3,7 @@
     python pipeline_preprocess/pipeline_02.py --steps brightness flag   # CPU, then review by hand
     python pipeline_preprocess/pipeline_02.py --steps build             # after review
     python pipeline_preprocess/pipeline_02.py --steps denoise_clahe     # dataset 2, CPU
+    python pipeline_preprocess/pipeline_02.py --steps gsam              # dataset 3, GPU (Colab: doc/pipeline/COLAB_GUIDE.md)
 
 Input   data/raw_data/                     Food-101 as downloaded (any nesting)
 Output  data/dataset/
@@ -16,20 +17,26 @@ Output  data/dataset/
           meta/manifest.csv                relpath,label,split,source (same for every dataset)
           01_original/{train,val,test}/<class>/<id>.jpg
           02_denoise_clahe/{train,val,test}/<class>/<id>.jpg   wavelet denoise -> CLAHE, from 01_original
+          03_denoise_clahe_gsam/{train,val,test}/<class>/<id>.jpg   Grounded-SAM on 02: food kept, grey background, cropped
+          meta/gsam_boxes.json, meta/gsam_stats.csv   Grounding DINO boxes; mask area + fallback per image
+Checkpoints  data/checkpoints/             gsam progress, or FOOD_CHECKPOINT_DIR (a Drive folder on Colab)
 
 Steps
   brightness  record mean brightness of all 101 classes (the class list below is fixed, not re-ranked)
   flag        CLIP zero-shot flags on official train, near-duplicates on the whole pool, review sheets
   build          apply review decisions, balance to N per class, split 60/20/20, resize
   denoise_clahe  dataset 2: wavelet denoise (BayesShrink) then CLAHE on L of LAB
+  gsam           dataset 3: Grounding DINO ("food.") boxes -> SAM ViT-B mask, on dataset 2 (needs CUDA)
 """
 import argparse
 import csv
 import glob
+import json
 import os
 import random
 from collections import Counter, defaultdict
 from multiprocessing import Pool
+import zipfile
 from pathlib import Path
 
 import cv2
@@ -68,6 +75,17 @@ JPEG_QUALITY = 95
 # dataset 2 (doc section 3); same values as analyst/preprocess_compare.ipynb
 WAVELET = dict(method="BayesShrink", mode="soft", rescale_sigma=True)
 CLAHE_CLIP, CLAHE_TILE = 2.0, 8
+
+# dataset 3 (doc section 4); same models and thresholds as pipeline_01's gsam
+DINO_ID = "IDEA-Research/grounding-dino-tiny"
+SAM_ID = "facebook/sam-vit-base"
+TEXT_PROMPT = "food."
+BOX_THR, TEXT_THR = 0.30, 0.25
+FILL_RGB = (124, 116, 104)        # ImageNet mean grey -> ~0 after normalisation
+MIN_AREA = 0.05                   # mask smaller than this = failed -> keep the dataset-2 image
+CROP_MARGIN = 0.05
+CKPT_DIR = Path(os.environ.get("FOOD_CHECKPOINT_DIR", DATA_DIR / "checkpoints"))
+CKPT_EVERY = 500                  # a dead Colab session loses at most this many images
 
 
 def write_csv(path, rows, fields):
@@ -360,12 +378,143 @@ def step_denoise_clahe():
     print(f"[denoise_clahe] done: {len(rels)} images")
 
 
+# =============================================================== step 5: Grounded-SAM
+def apply_mask(rgb, mask):
+    """RGB array + bool mask -> (masked and cropped to the food, area, fallback)."""
+    area = float(mask.mean()) if mask is not None else 0.0
+    if mask is None or area < MIN_AREA:
+        return rgb, area, True
+    ys, xs = np.where(mask)
+    h, w = mask.shape
+    my, mx = int(h * CROP_MARGIN), int(w * CROP_MARGIN)
+    y0, y1 = max(ys.min() - my, 0), min(ys.max() + my + 1, h)
+    x0, x1 = max(xs.min() - mx, 0), min(xs.max() + mx + 1, w)
+    masked = np.where(mask[..., None], rgb, np.array(FILL_RGB, dtype=rgb.dtype))
+    return masked[y0:y1, x0:x1], area, False
+
+
+def load_gsam(device):
+    from transformers import AutoModelForZeroShotObjectDetection, AutoProcessor, SamModel, SamProcessor
+    dino = (AutoProcessor.from_pretrained(DINO_ID),
+            AutoModelForZeroShotObjectDetection.from_pretrained(DINO_ID).to(device).eval())
+    sam = (SamProcessor.from_pretrained(SAM_ID), SamModel.from_pretrained(SAM_ID).to(device).eval())
+    return dino, sam
+
+
+def detect_boxes(img, dino, device):
+    import torch
+    proc, model = dino
+    inp = proc(images=img, text=TEXT_PROMPT, return_tensors="pt").to(device)
+    with torch.no_grad():
+        out = model(**inp)
+    kw = dict(text_threshold=TEXT_THR, target_sizes=[img.size[::-1]])
+    try:  # argument name differs across transformers versions
+        res = proc.post_process_grounded_object_detection(out, inp.input_ids, threshold=BOX_THR, **kw)[0]
+    except TypeError:
+        res = proc.post_process_grounded_object_detection(out, inp.input_ids, box_threshold=BOX_THR, **kw)[0]
+    return [[round(v, 1) for v in b] for b in res["boxes"].tolist()]
+
+
+def segment(img, boxes, sam, device):
+    """Union of the SAM masks of all food boxes, or None when there is no box."""
+    import torch
+    if not boxes:
+        return None
+    proc, model = sam
+    inp = proc(img, input_boxes=[boxes], return_tensors="pt").to(device)
+    with torch.no_grad():
+        out = model(**inp, multimask_output=False)
+    m = proc.image_processor.post_process_masks(
+        out.pred_masks.cpu(), inp["original_sizes"].cpu(), inp["reshaped_input_sizes"].cpu())[0]
+    return m.any(dim=0)[0].numpy().astype(bool)
+
+
+def _write_atomic(path, write):
+    """Only a finished file gets the final name, so a dead session never leaves half a checkpoint."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    write(tmp)
+    os.replace(tmp, path)
+
+
+def _part_path(start):
+    return CKPT_DIR / f"gsam_{start:05d}.zip"
+
+
+def _save_part(start, chunk, out):
+    def write(tmp):
+        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_STORED) as z:   # JPEG is already compressed
+            z.writestr("stats.json", json.dumps(chunk))
+            for s in chunk:
+                z.write(out / s["relpath"], f"{out.name}/{s['relpath']}")
+    _write_atomic(_part_path(start), write)
+
+
+def _restore_parts():
+    """Unpack finished parts in order and return their stats; stops at the first missing or broken part."""
+    stats = []
+    while True:
+        try:
+            with zipfile.ZipFile(_part_path(len(stats))) as z:
+                if z.testzip() is not None:
+                    return stats
+                chunk = json.loads(z.read("stats.json"))
+                z.extractall(OUT_DIR, [n for n in z.namelist() if n != "stats.json"])
+        except (FileNotFoundError, zipfile.BadZipFile):
+            return stats
+        stats += chunk
+
+
+def step_gsam(device):
+    if (META_DIR / "gsam_stats.csv").exists():
+        print("[gsam] gsam_stats.csv exists, skipping")
+        return
+    import torch
+    if device == "cuda" and not torch.cuda.is_available():
+        print("[gsam] no CUDA GPU -> run '--steps gsam' on Colab (doc/pipeline/COLAB_GUIDE.md)")
+        return
+    src, out = OUT_DIR / "02_denoise_clahe", OUT_DIR / "03_denoise_clahe_gsam"
+    rows = read_csv(MANIFEST)
+    missing = [r["relpath"] for r in rows if not (src / r["relpath"]).exists()]
+    if missing:
+        raise SystemExit(f"[gsam] STOP: {len(missing)} dataset-2 images missing, e.g. {missing[:2]}")
+    dino, sam = load_gsam(device)
+    stats = _restore_parts()
+    if stats:
+        print(f"[gsam] resumed at {len(stats)}/{len(rows)}")
+    for n, r in enumerate(rows):
+        if n < len(stats):
+            continue
+        img = Image.open(src / r["relpath"]).convert("RGB")
+        boxes = detect_boxes(img, dino, device)
+        result, area, fallback = apply_mask(np.array(img), segment(img, boxes, sam, device))
+        (out / r["relpath"]).parent.mkdir(parents=True, exist_ok=True)
+        Image.fromarray(result).save(out / r["relpath"], quality=JPEG_QUALITY)
+        stats.append({"relpath": r["relpath"], "split": r["split"], "boxes": boxes,
+                      "mask_area": round(area, 4), "fallback": int(fallback)})
+        if n % 500 == 0:
+            print(f"[gsam] {n}/{len(rows)}", flush=True)
+        if (n + 1) % CKPT_EVERY == 0 or n + 1 == len(rows):
+            start = n // CKPT_EVERY * CKPT_EVERY
+            _save_part(start, stats[start:], out)
+
+    _write_atomic(META_DIR / "gsam_boxes.json",
+                  lambda tmp: tmp.write_text(json.dumps({s["relpath"]: s["boxes"] for s in stats})))
+    write_csv(META_DIR / "gsam_stats.csv",
+              [{k: s[k] for k in ("relpath", "split", "mask_area", "fallback")} | {"n_boxes": len(s["boxes"])}
+               for s in stats], ["relpath", "split", "n_boxes", "mask_area", "fallback"])
+    rate = sum(s["fallback"] for s in stats) / len(stats)
+    by_split = {sp: sum(s["fallback"] for s in stats if s["split"] == sp) for sp in ("train", "val", "test")}
+    print(f"[gsam] done: {len(stats)} images, fallback rate {rate:.1%} {by_split}")
+
+
 # =============================================================== main
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--steps", nargs="+", default=["brightness", "flag", "build", "denoise_clahe"],
-                    choices=["brightness", "flag", "build", "denoise_clahe"])
+    ap.add_argument("--steps", nargs="+", default=["brightness", "flag", "build", "denoise_clahe", "gsam"],
+                    choices=["brightness", "flag", "build", "denoise_clahe", "gsam"])
     ap.add_argument("--src", default=str(RAW_DATA_DIR))
+    ap.add_argument("--device", default="cuda", help="gsam only; 'cpu' is far too slow for the full set")
     a = ap.parse_args()
 
     META_DIR.mkdir(parents=True, exist_ok=True)
@@ -377,6 +526,8 @@ def main():
         step_build(a.src)
     if "denoise_clahe" in a.steps:
         step_denoise_clahe()
+    if "gsam" in a.steps:
+        step_gsam(a.device)
 
 
 if __name__ == "__main__":

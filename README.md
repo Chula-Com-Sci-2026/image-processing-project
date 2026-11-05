@@ -17,7 +17,7 @@ image-processing-project/
 │   └── pipeline_01.py               # old process (replaced 2026-11-03)
 │
 ├── doc/
-│   ├── pipeline/pipeline_02.md      # the current data process, step by step
+│   ├── pipeline/                    # pipeline_02.md: current data process; COLAB_GUIDE.md: dataset 3 on Colab
 │   ├── analysis/                    # preprocess_metrics.md: what each preprocessing step does
 │   ├── references/                  # references_map.md: textbook ↔ papers
 │   └── legacy/                      # old process (pipeline_01) docs

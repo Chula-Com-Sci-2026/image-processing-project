@@ -229,7 +229,15 @@ By original brightness (thirds of the same 1,000 images):
 - Grounding DINO tiny, prompt `food.` (box threshold 0.30, text 0.25) → SAM ViT-B mask → background filled with ImageNet mean grey (124, 116, 104) → crop to the food box (+5% margin).
 - A mask smaller than 5% of the image counts as failed, and the dataset-2 image is kept unchanged.
 - `meta/gsam_stats.csv`: mask area and fallback per image. **Always report the fallback rate.**
-- Needs a GPU (Colab).
+- Needs a GPU (Colab). Step-by-step: `doc/pipeline/COLAB_GUIDE.md`.
+- Output: `meta/gsam_stats.csv` (relpath, split, n_boxes, mask_area, fallback) and `meta/gsam_boxes.json` (DINO boxes per image). Both small, both go in git.
+- Fallback rate: **PENDING** (after the Colab run).
+
+**CPU test on 6 dataset-2 images (2026-11-05):** about 20 s per image on CPU. A simulated disconnect after image 4 resumed from the checkpoint and finished. 0/6 fallbacks, but 3 of 6 masks were visibly wrong:
+- mussels: the mask kept the bread and background and dropped the dark mussel shells.
+- bibimbap and miso_soup: the dark stone bowl or bowl was dropped. Only the food on top was kept.
+
+The fallback rule (mask < 5% of the image) doesn't catch these, because the mask is big enough but on the wrong area. Dark food on a dark container is exactly what these classes contain, so expect more of this than in the old trial. To state in the report: a gain or loss in 2 vs 3 includes the effect of wrong masks, not only of removing the background. Checking mask quality on a random sample of dataset 3 (count obviously wrong masks per class) would make this measurable.
 
 ## 5. Rules for everyone (unchanged)
 

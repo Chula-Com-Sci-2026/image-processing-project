@@ -68,6 +68,8 @@ Rules:
 uv pip install --python .venv/bin/python -r requirements.txt
 .venv/bin/python pipeline_preprocess/pipeline_02.py --steps brightness flag   # then human review
 .venv/bin/python pipeline_preprocess/pipeline_02.py --steps build
+.venv/bin/python pipeline_preprocess/pipeline_02.py --steps denoise_clahe   # dataset 2, CPU
+# dataset 3 (--steps gsam) needs a GPU: doc/pipeline/COLAB_GUIDE.md
 sha256sum data/dataset/meta/manifest.csv                   # everyone must get the same hash
 ```
 
