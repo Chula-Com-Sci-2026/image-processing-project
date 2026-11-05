@@ -38,7 +38,8 @@ image-processing-project/
 ## Data you get
 - 10 classes with the darkest images in Food-101: bibimbap, miso_soup, mussels, prime_rib, edamame, baby_back_ribs, paella, chicken_wings, guacamole, nachos
 - Noisy images (wrong label, no food, duplicates) removed by hand, listed in `meta/removed.csv`
-- N images per class (N = the smallest class after cleaning, **PENDING**), split 60 / 20 / 20 train / val / test
+- 963 images per class (N = the smallest class after cleaning, edamame), split 60 / 20 / 20: train 578 · val 193 · test 192 per class, 5,780 · 1,930 · 1,920 in total (9,630 images)
+- Teammates get each dataset as one zip from Drive `dip-project/dataset_zips/`, with `meta/` and a README inside. No git needed.
 - Every dataset folder holds **the same images in the same split**. Only the preprocessing differs.
 
 | dataset | preprocessing |

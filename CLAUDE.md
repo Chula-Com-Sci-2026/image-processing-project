@@ -37,8 +37,8 @@ The course requires 3 preprocessing methods: noise removal (wavelet), enhancemen
 | Dataset | Food-101 (Bossard et al., ECCV 2014), Kaggle `kmader/food41` v5 |
 | Classes | 10 classes with the lowest mean image brightness: bibimbap, miso_soup, mussels, prime_rib, edamame, baby_back_ribs, paella, chicken_wings, guacamole, nachos |
 | Noise removal | official train only (750/class): CLIP flags, then a human decides. The official test set (250/class) is already hand-cleaned. Near-duplicates are removed from the whole pool |
-| Balance | pool clean train + test per class; N = smallest class count (**PENDING**); sample N per class, seed 42 |
-| Split | 60 / 20 / 20 train / val / test per class |
+| Balance | pool clean train + test per class; N = smallest class count = **963** (edamame); sample N per class, seed 42 |
+| Split | 60 / 20 / 20 train / val / test per class = 578 / 193 / 192 (9,630 images, manifest sha256 `79eb1d1c…`) |
 | Stored size | short side 256 px, JPEG q95 |
 | Denoise | `skimage` `denoise_wavelet`, BayesShrink, soft, YCbCr, `rescale_sigma=True` (before CLAHE) |
 | CLAHE | L channel of LAB, clip 2.0, tile 8×8 |
@@ -70,6 +70,7 @@ uv pip install --python .venv/bin/python -r requirements.txt
 .venv/bin/python pipeline_preprocess/pipeline_02.py --steps build
 .venv/bin/python pipeline_preprocess/pipeline_02.py --steps denoise_clahe   # dataset 2, CPU
 # dataset 3 (--steps gsam) needs a GPU: doc/pipeline/COLAB_GUIDE.md
+.venv/bin/python pipeline_preprocess/pipeline_02.py --steps zip   # self-contained zip per dataset for the team (no git needed)
 sha256sum data/dataset/meta/manifest.csv                   # everyone must get the same hash
 ```
 

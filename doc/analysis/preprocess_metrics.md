@@ -88,32 +88,34 @@ All metrics except noise σ are computed on L of LAB (0–255).
 
 ## Check on the built datasets (1,000 train images)
 
-After building dataset 2, the same four metrics were measured on the stored JPEGs of `01_original` and `02_denoise_clahe` (2026-11-05).
+After building dataset 2, the same four metrics were measured on 1,000 train images (2026-11-05). "CLAHE only" was computed on the fly from `01_original` with the pipeline's own `clahe()`, so the comparison isolates the wavelet step.
 
 | item | value |
 |---|---|
 | Images | 1,000 drawn at random from the **train** split of the manifest (`pandas.sample(1000, random_state=0)`) |
 | Pool | all brightness levels, not only dark images |
-| Pairs | the same 1,000 relpaths in both datasets |
+| Pairs | the same 1,000 relpaths in every row |
 | Values | mean over the 1,000 images |
 
-| dataset | brightness | contrast | Laplacian variance | noise σ |
+| | brightness | contrast | Laplacian variance | noise σ |
 |---|---|---|---|---|
 | `01_original` | 111.4 | 63.8 | 878 | 1.99 |
-| `02_denoise_clahe` | 121.5 | 66.8 | 1773 | 2.85 |
+| CLAHE only | 121.6 | 66.7 | 1956 | 3.70 |
+| `02_denoise_clahe` (wavelet → CLAHE) | 121.5 | 66.8 | 1773 | 2.85 |
 
 Split by the original brightness (thirds of the same 1,000 images):
 
-| third | brightness before | brightness after | noise σ before | noise σ after |
-|---|---|---|---|---|
-| darkest | 80.8 | 98.8 | 1.89 | 2.76 |
-| middle | 111.9 | 122.8 | 1.99 | 2.86 |
-| brightest | 141.6 | 143.1 | 2.10 | 2.92 |
+| third | brightness: original | CLAHE only | wavelet → CLAHE | noise σ: original | CLAHE only | wavelet → CLAHE |
+|---|---|---|---|---|---|---|
+| darkest | 80.8 | 99.0 | 98.8 | 1.89 | 3.59 | 2.76 |
+| middle | 111.9 | 122.9 | 122.8 | 1.99 | 3.70 | 2.86 |
+| brightest | 141.6 | 143.0 | 143.1 | 2.10 | 3.82 | 2.92 |
 
-- **CLAHE adapts to each image:** the darkest third gains +18 brightness, the brightest only +1.5.
-- **Noise rises by about 0.85 σ in every third** (+43% overall). Denoising first limits the rise but doesn't cancel it. On the 10 dark images the rise was similar (1.50 → 2.36).
-- **Laplacian variance doubles** (878 → 1773). Overall, edges and texture get stronger: the texture the wavelet step removes is less than what CLAHE adds. Part of the increase is noise.
-- **Why the numbers differ from the 10-image table:** that table used only dark images (mean brightness 64.6). Here most images are already bright (mean 111.4), so the brightness gain is smaller.
+- **CLAHE alone almost doubles the noise** (σ 1.99 → 3.70, ×1.9).
+- **Denoising first halves the noise CLAHE adds** (+1.71 → +0.86) at the same brightness (121.6 vs 121.5) and contrast (66.7 vs 66.8). So the wavelet step doesn't weaken the enhancement.
+- **CLAHE adapts to each image:** the darkest third gains +18 brightness, the brightest only +1.5. The pattern is the same in every third.
+- **Laplacian variance:** CLAHE alone 1956, wavelet → CLAHE 1773. The wavelet step removes about 9% of the high-frequency energy, and part of that is noise. Both are about 2× the original, so edges and texture still get stronger overall.
+- **Same direction as the 10 dark images** (σ 1.50 → 3.15 CLAHE only, → 2.36 wavelet → CLAHE). There, brightness gains were larger because every image was dark (mean 64.6, here 111.4).
 
 ## Limits
 
