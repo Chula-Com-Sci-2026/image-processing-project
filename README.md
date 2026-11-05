@@ -24,11 +24,11 @@ image-processing-project/
 │
 ├── analyst/                         # notebooks for viewing images, masks, stats
 │
-└── data/                            # not committed
+└── data/                            # not committed, except data/dataset/meta/
     ├── raw_data/                    #   Food-101 as downloaded (Kaggle kmader/food41 v5)
     ├── preprocessing_data/          #   old process output
     └── dataset/                     #   what the team uses
-        ├── meta/                    #   manifest.csv, removed.csv, class_counts.csv, ...
+        ├── meta/                    #   in git: manifest.csv, removed.csv, review sheets, ...
         ├── 01_original/
         ├── 02_denoise_clahe/
         └── 03_denoise_clahe_gsam/

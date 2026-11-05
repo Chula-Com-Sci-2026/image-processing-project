@@ -220,4 +220,4 @@ Ruled out (`analyst/preprocess_compare.ipynb`):
 3. ~~**Test–test duplicates (1c)**~~: decided, remove one copy (see 1c).
 4. **Old `data/preprocessing_data/`**: keep as archive, or delete?
 5. ~~**Reviewer** for 1d~~: done by the data engineer, 2026-11-05.
-6. **Git**: track `data/dataset/meta/*.csv` like the old `manifest.csv` was tracked, and ignore the images?
+6. ~~**Git**~~: decided 2026-11-05. `data/dataset/meta/` is in git (csv files + review sheets). Images and `meta/clip_cache.npz` (21 MB, rebuildable) are ignored. Images go to the team via Drive.
