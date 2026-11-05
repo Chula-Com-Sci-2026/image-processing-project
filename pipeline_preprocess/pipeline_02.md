@@ -75,6 +75,8 @@ The pool is split again in 1e, so duplicate images could land in train and test 
 - Train–train pair: flag the second image (by sorted id).
 - Train–test pair: flag the train copy.
 - Test–test pair: flag the second image. **This is the only way an official test image can be removed.**
+  - Decided 2026-11-05: remove one copy instead of forcing the pair into the same split. A copy adds no new information, and a dataset with no duplicates is easier to explain. Each removal is listed in `removed.csv` with reason `duplicate`.
+  - Why it matters now: in the old process both copies stayed in test, so they were only counted twice. Here the pool is split again, so the two copies could land in train and test. The model would then recognise the photo instead of the food, and test accuracy would be too high.
 
 ### 1d. Human review
 
@@ -132,7 +134,7 @@ Example with N = 800: 480 / 160 / 160 per class, 4,800 / 1,600 / 1,600 in total.
 
 1. **"contrast → CLAHE"**: is this one step (CLAHE is the contrast enhancement), or two steps (a global contrast stretch first, then CLAHE)? This plan assumes one step.
 2. **Optional dataset 4 `04_gsam`** (Grounded-SAM on dataset 1, no CLAHE): without it we can't tell whether segmentation helps only after CLAHE. It costs one more GPU run.
-3. **Test–test duplicates (1c)**: OK to remove one copy, even though it is official test?
+3. ~~**Test–test duplicates (1c)**~~: decided, remove one copy (see 1c).
 4. **Old `data/preprocessing_data/`**: keep as archive, or delete?
 5. **Reviewer** for 1d.
 6. **Git**: track `data/dataset/meta/*.csv` like the old `manifest.csv` was tracked, and ignore the images?
