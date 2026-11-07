@@ -2,7 +2,7 @@
 
 This replaces the old data process in `pipeline_01.py` (5 confusable pairs, 675/75/250 split). The team agreed to the change on 2026-11-03. The data engineer builds the datasets, and everyone else only reads them.
 
-**Status (2026-11-05):** processes 1 and 2 done (`01_original`, `02_denoise_clahe` built). Process 3 not built yet. Values marked **PENDING** become known after a step runs.
+**Status (2026-11-07):** all 3 datasets built (`01_original`, `02_denoise_clahe`, `03_denoise_clahe_gsam`).
 
 ## 1. What the team gets
 
@@ -231,7 +231,31 @@ By original brightness (thirds of the same 1,000 images):
 - `meta/gsam_stats.csv`: mask area and fallback per image. **Always report the fallback rate.**
 - Needs a GPU (Colab). Step-by-step: `doc/pipeline/COLAB_GUIDE.md`.
 - Output: `meta/gsam_stats.csv` (relpath, split, n_boxes, mask_area, fallback) and `meta/gsam_boxes.json` (DINO boxes per image). Both small, both go in git.
-- Fallback rate: **PENDING** (after the Colab run).
+- Fallback rate: see the result below.
+
+**Result** (Colab T4, code at commit `a344926`, files received 2026-11-07):
+- `03_denoise_clahe_gsam.zip`: 9,630 images, exactly the manifest's relpaths, no corrupt entries. Its `meta/manifest.csv` has the same hash (`79eb1d1c…`). Its `meta/gsam_stats.csv` is byte-identical to `meta/gsam_stats.csv` in git.
+
+| split | train | val | test | total |
+|---|---|---|---|---|
+| fallback (mask < 5%, dataset-2 image kept) | 0.92% | 1.40% | 0.62% | **0.96%** (92 images) |
+
+| class | fallback % | median mask area | images with no DINO box |
+|---|---|---|---|
+| baby_back_ribs | 0.9 | 0.47 | 2 |
+| bibimbap | 0.3 | 0.40 | 0 |
+| chicken_wings | 0.8 | 0.39 | 1 |
+| edamame | 1.7 | 0.34 | 0 |
+| guacamole | 0.7 | 0.41 | 0 |
+| miso_soup | 1.7 | 0.40 | 4 |
+| mussels | 0.8 | 0.39 | 1 |
+| nachos | 0.6 | 0.46 | 0 |
+| paella | 1.0 | 0.46 | 0 |
+| prime_rib | 0.9 | 0.42 | 1 |
+
+- The fallback rate is low in every split and class (0.3–1.7%). The old trial had 1.54%.
+- **A low fallback rate doesn't mean the masks are right.** In 18.5% of images the SAM mask covers less than 40% of the union of its DINO boxes. That is where wrong masks like the mussels case are likely: edamame 29%, chicken_wings / mussels / nachos ~24%, miso_soup 5%. This is only a signal, not a count of wrong masks. For example, edamame pods in a bowl leave real gaps. A visual check of a random sample is needed to count actual errors.
+- DINO boxes (`meta/gsam_boxes.json`): the union box covers a median 78% of the image. It covers ≥ 90% in 29.7% of images and ≥ 99% in 13.7%.
 
 **CPU test on 6 dataset-2 images (2026-11-05):** about 20 s per image on CPU. A simulated disconnect after image 4 resumed from the checkpoint and finished. 0/6 fallbacks, but 3 of 6 masks were visibly wrong:
 - mussels: the mask kept the bread and background and dropped the dark mussel shells.
