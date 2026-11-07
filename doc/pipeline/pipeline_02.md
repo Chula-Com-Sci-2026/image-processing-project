@@ -2,17 +2,18 @@
 
 This replaces the old data process in `pipeline_01.py` (5 confusable pairs, 675/75/250 split). The team agreed to the change on 2026-11-03. The data engineer builds the datasets, and everyone else only reads them.
 
-**Status (2026-11-07):** all 3 datasets built (`01_original`, `02_denoise_clahe`, `03_denoise_clahe_gsam`).
+**Status (2026-11-07):** all 4 datasets built (`01_original`, `02_denoise_clahe`, `03_denoise_clahe_gsam`, `04_denoise_clahe_dino`).
 
 ## 1. What the team gets
 
-Three datasets. All three contain the same images under the same relative paths, so a notebook switches datasets by changing one folder name.
+Four datasets. All four contain the same images under the same relative paths, so a notebook switches datasets by changing one folder name.
 
 | # | folder | built from | what changes |
 |---|---|---|---|
 | 1 | `data/dataset/01_original/` | Food-101 raw images | 10 dark classes, noisy labels removed, 60/20/20 split, resized |
 | 2 | `data/dataset/02_denoise_clahe/` | dataset 1 | wavelet denoise → CLAHE |
 | 3 | `data/dataset/03_denoise_clahe_gsam/` | dataset 2 | Grounded-SAM: food kept, background grey |
+| 4 | `data/dataset/04_denoise_clahe_dino/` | dataset 2 | crop to the union of the Grounding DINO boxes, real pixels kept, no mask (added 2026-11-07) |
 
 The course requires 3 preprocessing methods. They match the three kinds of pre-processing in the lecture notes (§10.1, PDF p.241: "noise removal, image enhancement, segmentation, before feature extraction"):
 
@@ -26,6 +27,8 @@ What each comparison measures:
 - **1 vs 2**: denoise + CLAHE **together**. The two steps are not measured separately (decided 2026-11-05 to keep 3 datasets).
 - **2 vs 3**: the effect of segmentation, with denoise + CLAHE held fixed. This comparison answers the research question.
 - **1 vs 3**: all three steps together.
+- **2 vs 4**: the effect of cropping to the food region (localisation only).
+- **4 vs 3**: the effect of SAM's mask inside the box (removing the background), including the effect of wrong masks. Together with 2 vs 4, this splits segmentation into "where the food is" and "what is food".
 
 ```
 data/dataset/
@@ -38,7 +41,8 @@ data/dataset/
 │   └── manifest.csv         relpath,label,split,source (identical for all 3 datasets)
 ├── 01_original/{train,val,test}/<class>/<id>.jpg
 ├── 02_denoise_clahe/{train,val,test}/<class>/<id>.jpg
-└── 03_denoise_clahe_gsam/{train,val,test}/<class>/<id>.jpg   (+ meta/gsam_stats.csv)
+├── 03_denoise_clahe_gsam/{train,val,test}/<class>/<id>.jpg   (+ meta/gsam_stats.csv, meta/gsam_boxes.json)
+└── 04_denoise_clahe_dino/{train,val,test}/<class>/<id>.jpg   (+ meta/dino_crop_stats.csv)
 ```
 
 ## 2. Process 1: base dataset (`01_original`)
@@ -262,6 +266,23 @@ By original brightness (thirds of the same 1,000 images):
 - bibimbap and miso_soup: the dark stone bowl or bowl was dropped. Only the food on top was kept.
 
 The fallback rule (mask < 5% of the image) doesn't catch these, because the mask is big enough but on the wrong area. Dark food on a dark container is exactly what these classes contain, so expect more of this than in the old trial. To state in the report: a gain or loss in 2 vs 3 includes the effect of wrong masks, not only of removing the background. Checking mask quality on a random sample of dataset 3 (count obviously wrong masks per class) would make this measurable.
+
+## 4a. Process 4: DINO crop (`04_denoise_clahe_dino`)
+
+Added 2026-11-07 at a teammate's suggestion. Some Grounded-SAM masks remove food (the mussels case in section 4), so dataset 4 keeps only the localisation part of Grounded-SAM.
+
+- Input: `02_denoise_clahe` + `meta/gsam_boxes.json`. DINO does **not** run again: the boxes are the ones the gsam step found on the dataset-2 images, so datasets 3 and 4 use exactly the same boxes. CPU only, 35 s.
+- Crop to the **union of all boxes** (decided 2026-11-07, matches dataset 3, which joins the masks of all boxes) + 5% margin. Real pixels are kept, with no grey fill.
+- Fallback: no box, or union box < 5% of the image → the dataset-2 image is kept.
+- `meta/dino_crop_stats.csv`: relpath, split, n_boxes, box_area, fallback.
+
+**Result** (`--steps dino_crop`, 2026-11-07):
+- 9,630 images, the same relpaths as the manifest. Fallback images are copies of dataset 2.
+- Fallback 17 images (0.18%): 9 with no box, 8 with a union box < 5%. Train 0.14%, val 0.21%, test 0.26%.
+- Area kept compared to dataset 2: median **88%**. **24.0% of images are not cropped at all** (the box covers the whole image), and only 6.2% keep less than half.
+- On the 3 images where the SAM mask was wrong (mussels, bibimbap, miso_soup), the crop keeps all the food. For mussels the box is the whole image, so dataset 4 is the same as dataset 2.
+
+**To state in the report:** datasets 2 and 4 differ only a little (a median 12% of the area is removed, a quarter of images are unchanged). If 2 and 4 score the same, it may be because the images barely differ, not because cropping doesn't help.
 
 ## 4b. Delivery to the team: one zip per dataset
 

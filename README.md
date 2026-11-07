@@ -31,7 +31,8 @@ image-processing-project/
         ├── meta/                    #   in git: manifest.csv, removed.csv, review sheets, ...
         ├── 01_original/
         ├── 02_denoise_clahe/
-        └── 03_denoise_clahe_gsam/
+        ├── 03_denoise_clahe_gsam/
+        └── 04_denoise_clahe_dino/
             └── {train,val,test}/<class>/<id>.jpg   # same images in every dataset
 ```
 
@@ -47,6 +48,7 @@ image-processing-project/
 | `01_original` | resized photo (baseline) |
 | `02_denoise_clahe` | `01_original` + wavelet denoise, then CLAHE on the lightness channel |
 | `03_denoise_clahe_gsam` | `02_denoise_clahe` + Grounded-SAM: food masked, grey background, cropped to food |
+| `04_denoise_clahe_dino` | `02_denoise_clahe` cropped to the Grounding DINO food boxes, real pixels kept (no mask) |
 
 ## Only 3 rules
 1. **Don't re-split.** Use the `train/ val/ test/` folders as given.

@@ -21,15 +21,16 @@ See the folder tree in `README.md`. In short:
 - `data/raw_data/`: Food-101 as downloaded. `data/dataset/`: the datasets for the team.
 
 ## Datasets for the team
-Each dataset is built from the one before it. All three hold the same images under the same relpaths and share one `manifest.csv`.
+Each dataset is built from the one before it. All four hold the same images under the same relpaths and share one `manifest.csv`.
 
 | # | folder | built from | what changes |
 |---|---|---|---|
 | 1 | `01_original` | Food-101 raw | 10 dark classes, noise removed, 60/20/20 split, resized |
 | 2 | `02_denoise_clahe` | dataset 1 | wavelet denoise → CLAHE |
 | 3 | `03_denoise_clahe_gsam` | dataset 2 | Grounded-SAM: food kept, grey background, cropped to food |
+| 4 | `04_denoise_clahe_dino` | dataset 2 | crop to the union of the DINO boxes (same boxes as dataset 3), real pixels kept, no mask |
 
-The course requires 3 preprocessing methods: noise removal (wavelet), enhancement (CLAHE), segmentation (Grounded-SAM), matching the lecture notes §10.1. 1 vs 2 measures denoise + CLAHE together. 2 vs 3 measures segmentation with them held fixed, which answers the research question. Classifiers (zero-shot, classical, CNN, Transformer) are trained by the rest of the team.
+The course requires 3 preprocessing methods: noise removal (wavelet), enhancement (CLAHE), segmentation (Grounded-SAM), matching the lecture notes §10.1. 1 vs 2 measures denoise + CLAHE together. 2 vs 3 measures segmentation with them held fixed, which answers the research question. Dataset 4 (added 2026-11-07, because some SAM masks remove food) splits that effect: 2 vs 4 = cropping to the food region, 4 vs 3 = SAM's mask inside the box. Classifiers (zero-shot, classical, CNN, Transformer) are trained by the rest of the team.
 
 ## Fixed protocol
 | item | value |
@@ -45,6 +46,7 @@ The course requires 3 preprocessing methods: noise removal (wavelet), enhancemen
 | Grounded-SAM | Grounding DINO tiny ("food.", box 0.30, text 0.25) + SAM ViT-B |
 | Fill colour | ImageNet mean grey (124,116,104) for the mask background |
 | Failed mask | below 5% of the image: keep the dataset-2 image, and count it as a fallback |
+| DINO crop | union of all DINO boxes from `meta/gsam_boxes.json` + 5% margin; no box or union < 5% → dataset-2 image (fallback) |
 
 Rules:
 - Never remove an image for being dark. Darkness is why these classes were chosen.
@@ -70,7 +72,8 @@ uv pip install --python .venv/bin/python -r requirements.txt
 .venv/bin/python pipeline_preprocess/pipeline_02.py --steps build
 .venv/bin/python pipeline_preprocess/pipeline_02.py --steps denoise_clahe   # dataset 2, CPU
 # dataset 3 (--steps gsam) needs a GPU: doc/pipeline/COLAB_GUIDE.md
-.venv/bin/python pipeline_preprocess/pipeline_02.py --steps zip   # self-contained zip per dataset for the team (no git needed)
+.venv/bin/python pipeline_preprocess/pipeline_02.py --steps dino_crop   # dataset 4, CPU, needs meta/gsam_boxes.json
+.venv/bin/python pipeline_preprocess/pipeline_02.py --steps zip   # self-contained zip per dataset for the team (no git needed); --zip-datasets <name> for one
 sha256sum data/dataset/meta/manifest.csv                   # everyone must get the same hash
 ```
 

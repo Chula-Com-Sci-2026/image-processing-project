@@ -4,6 +4,7 @@
     python pipeline_preprocess/pipeline_02.py --steps build             # after review
     python pipeline_preprocess/pipeline_02.py --steps denoise_clahe     # dataset 2, CPU
     python pipeline_preprocess/pipeline_02.py --steps gsam              # dataset 3, GPU (Colab: doc/pipeline/COLAB_GUIDE.md)
+    python pipeline_preprocess/pipeline_02.py --steps dino_crop         # dataset 4, CPU, reuses the gsam DINO boxes
     python pipeline_preprocess/pipeline_02.py --steps zip               # one self-contained zip per built dataset
 
 Input   data/raw_data/                     Food-101 as downloaded (any nesting)
@@ -20,6 +21,8 @@ Output  data/dataset/
           02_denoise_clahe/{train,val,test}/<class>/<id>.jpg   wavelet denoise -> CLAHE, from 01_original
           03_denoise_clahe_gsam/{train,val,test}/<class>/<id>.jpg   Grounded-SAM on 02: food kept, grey background, cropped
           meta/gsam_boxes.json, meta/gsam_stats.csv   Grounding DINO boxes; mask area + fallback per image
+          04_denoise_clahe_dino/{train,val,test}/<class>/<id>.jpg   dataset 2 cropped to the union of its DINO boxes
+          meta/dino_crop_stats.csv         box area + fallback per image
           zips/<dataset>.zip               images + meta/ (manifest, counts, removals) + README_<dataset>.md
 Checkpoints  data/checkpoints/             gsam progress, or FOOD_CHECKPOINT_DIR (a Drive folder on Colab)
 
@@ -29,6 +32,7 @@ Steps
   build          apply review decisions, balance to N per class, split 60/20/20, resize
   denoise_clahe  dataset 2: wavelet denoise (BayesShrink) then CLAHE on L of LAB
   gsam           dataset 3: Grounding DINO ("food.") boxes -> SAM ViT-B mask, on dataset 2 (needs CUDA)
+  dino_crop      dataset 4: crop dataset 2 to the union of its DINO boxes (from gsam_boxes.json), real pixels kept
   zip            zip every built dataset so teammates need nothing else (no git)
 """
 import argparse
@@ -512,12 +516,58 @@ def step_gsam(device):
     print(f"[gsam] done: {len(stats)} images, fallback rate {rate:.1%} {by_split}")
 
 
-# =============================================================== step 6: zip for the team
+# =============================================================== step 6: DINO crop (dataset 4)
+def crop_to_boxes(rgb, boxes):
+    """RGB array + DINO boxes -> (cropped to the union of all boxes + margin, box area, fallback)."""
+    if not boxes:
+        return rgb, 0.0, True
+    h, w = rgb.shape[:2]
+    b = np.clip(np.array(boxes, dtype=float), 0, [w, h, w, h])   # DINO boxes can poke slightly outside
+    x0, y0, x1, y1 = b[:, 0].min(), b[:, 1].min(), b[:, 2].max(), b[:, 3].max()
+    area = float((x1 - x0) * (y1 - y0) / (w * h))
+    if area < MIN_AREA:
+        return rgb, area, True
+    my, mx = int(h * CROP_MARGIN), int(w * CROP_MARGIN)
+    y0, y1 = max(int(y0) - my, 0), min(int(np.ceil(y1)) + my, h)
+    x0, x1 = max(int(x0) - mx, 0), min(int(np.ceil(x1)) + mx, w)
+    return rgb[y0:y1, x0:x1], area, False
+
+
+def step_dino_crop():
+    if (META_DIR / "dino_crop_stats.csv").exists():
+        print("[dino_crop] dino_crop_stats.csv exists, skipping")
+        return
+    boxes_path = META_DIR / "gsam_boxes.json"
+    if not boxes_path.exists():
+        raise SystemExit("[dino_crop] gsam_boxes.json missing: it comes from the gsam step (Colab)")
+    boxes = json.loads(boxes_path.read_text())
+    src, out = OUT_DIR / "02_denoise_clahe", OUT_DIR / "04_denoise_clahe_dino"
+    rows, stats = read_csv(MANIFEST), []
+    missing = [r["relpath"] for r in rows if r["relpath"] not in boxes or not (src / r["relpath"]).exists()]
+    if missing:
+        raise SystemExit(f"[dino_crop] STOP: {len(missing)} images without box entry or dataset-2 file, e.g. {missing[:2]}")
+    for n, r in enumerate(rows):
+        result, area, fallback = crop_to_boxes(np.array(Image.open(src / r["relpath"]).convert("RGB")), boxes[r["relpath"]])
+        (out / r["relpath"]).parent.mkdir(parents=True, exist_ok=True)
+        Image.fromarray(result).save(out / r["relpath"], quality=JPEG_QUALITY)
+        stats.append({"relpath": r["relpath"], "split": r["split"], "n_boxes": len(boxes[r["relpath"]]),
+                      "box_area": round(area, 4), "fallback": int(fallback)})
+        if n % 2000 == 0:
+            print(f"[dino_crop] {n}/{len(rows)}", flush=True)
+    write_csv(META_DIR / "dino_crop_stats.csv", stats, list(stats[0]))
+    rate = sum(s["fallback"] for s in stats) / len(stats)
+    by_split = {sp: sum(s["fallback"] for s in stats if s["split"] == sp) for sp in ("train", "val", "test")}
+    print(f"[dino_crop] done: {len(stats)} images, fallback rate {rate:.1%} {by_split}")
+
+
+# =============================================================== step 7: zip for the team
 DATASETS = {
     "01_original": "ภาพต้นฉบับที่ resize แล้ว (baseline) ยังไม่ผ่าน preprocessing ใด ๆ",
     "02_denoise_clahe": "dataset 1 + wavelet denoise (BayesShrink) แล้วตามด้วย CLAHE บนช่อง L ของ LAB",
     "03_denoise_clahe_gsam": "dataset 2 + Grounded-SAM: เก็บเฉพาะอาหาร พื้นหลังเป็นสีเทา (124,116,104) แล้ว crop ให้เหลือแต่อาหาร",
+    "04_denoise_clahe_dino": "dataset 2 + crop ตามกรอบอาหารของ Grounding DINO (รวมทุกกรอบ) เก็บพิกเซลจริงไว้ทั้งหมด ไม่ใช้ mask",
 }
+STATS = {"03_denoise_clahe_gsam": "gsam_stats.csv", "04_denoise_clahe_dino": "dino_crop_stats.csv"}
 ZIP_META = ["manifest.csv", "class_counts.csv", "removed.csv"]
 
 
@@ -542,30 +592,33 @@ def _dataset_readme(name, rows, digest):
         "1. ห้ามแบ่ง train/val/test ใหม่ ใช้ตามโฟลเดอร์",
         "2. ภายในโมเดลเดียวกัน ทุก dataset ต้องใช้ค่าตั้งเดียวกัน",
         "3. เลือก epoch และ hyper-parameter ด้วย val macro-F1 แล้วประเมิน test ครั้งเดียว รายงาน accuracy และ macro P/R/F1", "",
-        "## dataset ทั้ง 3 ชุด", "", "| dataset | preprocessing |", "|---|---|",
+        f"## dataset ทั้ง {len(DATASETS)} ชุด", "", "| dataset | preprocessing |", "|---|---|",
         *[f"| `{n}` | {d} |" for n, d in DATASETS.items()],
     ]
-    if name == "03_denoise_clahe_gsam":
-        st = read_csv(META_DIR / "gsam_stats.csv")
+    if name in STATS:
+        st = read_csv(META_DIR / STATS[name])
         rate = {sp: sum(int(r["fallback"]) for r in st if r["split"] == sp) / max(1, sum(r["split"] == sp for r in st))
                 for sp in ("train", "val", "test")}
+        rule = ("ภาพที่ mask เล็กกว่า 5% ของภาพถือว่า segment ไม่สำเร็จ" if name == "03_denoise_clahe_gsam"
+                else "ภาพที่ DINO ไม่เจอกรอบ หรือกรอบรวมเล็กกว่า 5% ของภาพ ถือว่า crop ไม่สำเร็จ")
         lines += ["", "## Fallback", "",
-                  "ภาพที่ mask เล็กกว่า 5% ของภาพถือว่า segment ไม่สำเร็จ และใช้ภาพจาก dataset 2 แทน (`fallback = 1` ใน `meta/gsam_stats.csv`)", "",
-                  "fallback rate: " + " · ".join(f"{sp} {v:.1%}" for sp, v in rate.items()), "",
-                  "mask บางภาพอาจผิดโดยไม่ถูกนับเป็น fallback เช่น ตัดอาหารสีเข้มทิ้งแต่เก็บพื้นหลังไว้ ให้ระวังตอนอ่านผล"]
+                  f"{rule} และใช้ภาพจาก dataset 2 แทน (`fallback = 1` ใน `meta/{STATS[name]}`)", "",
+                  "fallback rate: " + " · ".join(f"{sp} {v:.1%}" for sp, v in rate.items())]
+        if name == "03_denoise_clahe_gsam":
+            lines += ["", "mask บางภาพอาจผิดโดยไม่ถูกนับเป็น fallback เช่น ตัดอาหารสีเข้มทิ้งแต่เก็บพื้นหลังไว้ ให้ระวังตอนอ่านผล"]
     lines += ["", "รายละเอียดทั้งหมด: `doc/pipeline/pipeline_02.md` ใน repo", ""]
     return "\n".join(lines)
 
 
-def step_zip():
+def step_zip(only=None):
     rows = read_csv(MANIFEST)
     digest = hashlib.sha256(MANIFEST.read_bytes()).hexdigest()
-    for name in DATASETS:
+    for name in only or DATASETS:
         d = OUT_DIR / name
         if not d.is_dir():
             print(f"[zip] {name} not built, skipping")
             continue
-        meta = ZIP_META + (["gsam_stats.csv"] if name == "03_denoise_clahe_gsam" else [])
+        meta = ZIP_META + ([STATS[name]] if name in STATS else [])
         missing = [r["relpath"] for r in rows if not (d / r["relpath"]).exists()]
         missing += [f"meta/{m}" for m in meta if not (META_DIR / m).exists()]
         if missing:
@@ -586,8 +639,10 @@ def step_zip():
 # =============================================================== main
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--steps", nargs="+", default=["brightness", "flag", "build", "denoise_clahe", "gsam"],
-                    choices=["brightness", "flag", "build", "denoise_clahe", "gsam", "zip"])
+    ap.add_argument("--steps", nargs="+", default=["brightness", "flag", "build", "denoise_clahe", "gsam", "dino_crop"],
+                    choices=["brightness", "flag", "build", "denoise_clahe", "gsam", "dino_crop", "zip"])
+    ap.add_argument("--zip-datasets", nargs="+", choices=list(DATASETS),
+                    help="zip only these datasets (default: every built one)")
     ap.add_argument("--src", default=str(RAW_DATA_DIR))
     ap.add_argument("--device", default="cuda", help="gsam only; 'cpu' is far too slow for the full set")
     a = ap.parse_args()
@@ -603,8 +658,10 @@ def main():
         step_denoise_clahe()
     if "gsam" in a.steps:
         step_gsam(a.device)
+    if "dino_crop" in a.steps:
+        step_dino_crop()
     if "zip" in a.steps:
-        step_zip()
+        step_zip(a.zip_datasets)
 
 
 if __name__ == "__main__":
