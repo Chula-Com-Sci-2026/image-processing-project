@@ -5,7 +5,7 @@ Team project for 2110651 Digital Image Processing (Chulalongkorn, MSc CS, 4-pers
 **Research question:** Does segmentation before classification improve food menu prediction accuracy?
 
 Team: 2 data scientists, 1 data engineer (data preparation & transforms), 1 software developer.
-**This workspace is the data engineer's.** It builds the datasets the team trains on. Models are trained outside this workspace.
+**This workspace is mainly the data engineer's.** It builds the datasets the team trains on. The team's model code lives in `pipeline_model/` (owned by the data scientists).
 
 ## How to work with me
 - I want to understand and write parts myself. Explain *why* before *how*, and prefer small diffs I can review.
@@ -16,6 +16,7 @@ Team: 2 data scientists, 1 data engineer (data preparation & transforms), 1 soft
 See the folder tree in `README.md`. In short:
 - `pipeline_preprocess/pipeline_02.py`: builds the 3 datasets in `data/dataset/`. All constants (classes, seed, ratios, sizes, model IDs) sit at the top of the file. The plan, step by step, is in `doc/pipeline/pipeline_02.md`. Keep the two in sync.
 - `pipeline_preprocess/pipeline_01.py` and `data/preprocessing_data/`: the old process (5 confusable pairs, 675/75/250 split). Replaced on 2026-11-03. Don't build on it.
+- `pipeline_model/`: the team's training/evaluation notebooks (zero-shot CLIP, classical, CNN, Transformer). One notebook serves every dataset: only `DATASET` changes, so settings stay identical across datasets.
 - `analyst/`: notebooks for looking at images, masks and stats (figures for slides).
 - `doc/`: every md except CLAUDE.md and README.md. `pipeline/` current process, `analysis/` findings, `references/` citations, `legacy/` old process.
 - `data/raw_data/`: Food-101 as downloaded. `data/dataset/`: the datasets for the team.

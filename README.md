@@ -16,6 +16,8 @@ image-processing-project/
 │   ├── pipeline_02.py               # builds data/dataset/
 │   └── pipeline_01.py               # old process (replaced 2026-11-03)
 │
+├── pipeline_model/                  # team's model notebooks: train + evaluate on one dataset (set DATASET)
+│
 ├── doc/
 │   ├── pipeline/                    # pipeline_02.md: current data process; COLAB_GUIDE.md: dataset 3 on Colab
 │   ├── analysis/                    # preprocess_metrics.md: what each preprocessing step does
