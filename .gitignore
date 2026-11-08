@@ -20,3 +20,7 @@ books/*
 # local env and analyst figures
 .venv/
 analyst/figures/
+
+# pipeline_model local runs: results and model weights (ResNet-50 ~100 MB), share via Drive
+/results/
+/checkpoints/
