@@ -17,10 +17,11 @@ image-processing-project/
 │   └── pipeline_01.py               # old process (replaced 2026-11-03)
 │
 ├── pipeline_model/                  # team's model notebooks: train + evaluate on one dataset (set DATASET)
+├── model_exploration/               # 4 more models (SigLIP, SIFT BoVW, EfficientNet-B0, ResNet-18) on 01/02/03, same process
 │
 ├── doc/
 │   ├── pipeline/                    # pipeline_02.md: current data process; COLAB_GUIDE.md: dataset 3 on Colab
-│   ├── analysis/                    # preprocess_metrics.md: what each preprocessing step does
+│   ├── analysis/                    # preprocess_metrics.md: what each preprocessing step does; model_exploration.md: results
 │   ├── references/                  # references_map.md: textbook ↔ papers
 │   └── legacy/                      # old process (pipeline_01) docs
 │

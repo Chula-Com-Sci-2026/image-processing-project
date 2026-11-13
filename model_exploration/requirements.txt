@@ -1,0 +1,23 @@
+# Core
+numpy
+pandas
+matplotlib
+pillow
+joblib
+scipy               # McNemar (binomtest)
+
+# Classical: dense SIFT bag-of-visual-words + SVM
+opencv-python       # cv2.SIFT_create
+scikit-learn        # MiniBatchKMeans, SVC, metrics
+
+# Deep learning
+torch
+torchvision         # EfficientNet-B0, ResNet-18
+transformers>=4.40  # SigLIP
+sentencepiece       # SigLIP tokenizer
+protobuf            # SigLIP tokenizer
+
+# Tools
+gdown               # dataset zips from the team Drive
+jupyter
+ipykernel
