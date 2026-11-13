@@ -13,6 +13,8 @@ Raw tables: `model_exploration/reported_results/`.
 | ResNet-18, from scratch | 0.814 | 0.826 | 0.721 |
 | Dense SIFT BoVW + χ² SVM | 0.506 | 0.473 | 0.469 |
 
+![Test macro-F1 by model and dataset](figures/model_exploration/test_macro_f1.png)
+
 Chosen configs:
 - **SigLIP:** prompt `classname` on 01, `ensemble` on 02 and 03.
 - **EfficientNet-B0:** unfreeze `top` on 01 and 02, `all` on 03.
@@ -32,9 +34,19 @@ Chosen configs:
 
 With this mask setup, segmentation hurts 3 of the 4 models. Their drops are much larger than the ~±4.5 pt seed noise seen in the 25-Oct trial.
 
+![Δ macro-F1 with 95% bootstrap CI and McNemar p](figures/model_exploration/paired_delta_ci.png)
+
+*A filled dot means the CI excludes 0. A hollow dot means it does not.*
+
 ## Why segmentation hurts
 
 - **The mask removes the dark main dish.** These classes were chosen for being dark, and Grounded-SAM often turns the darkest region (ribs, prime rib, mussels) into grey background. It keeps the brighter side dishes. The failure galleries show ribs removed and corn, rice and potato salad kept, which leads to predictions such as prime_rib, mussels or guacamole.
+
+  ![EfficientNet-B0: right on 02, wrong on 03](figures/model_exploration/flips_hurt_effnet_b0.jpg)
+
+  ![SigLIP: right on 02, wrong on 03](figures/model_exploration/flips_hurt_siglip.jpg)
+
+  *Top row: dataset 02 (right). Bottom row: dataset 03 (wrong), with the mask area. Not every failure is food removal. In the second SigLIP example the ribs are kept (mask 0.65) and SigLIP still says prime_rib, so the grey background itself also confuses a model trained on whole photos.*
 - **Error rises as the mask gets smaller.**
 
   | mask area / image | n | SigLIP | EfficientNet-B0 | ResNet-18 |
@@ -46,6 +58,8 @@ With this mask setup, segmentation hurts 3 of the 4 models. Their drops are much
   | > 70% | 281 | 9% | 5% | 21% |
 
   Over all models, the images that segmentation made wrong have a median mask area of 0.30. The images it made right have 0.39.
+
+  ![Error rate on 03 by mask area](figures/model_exploration/error_by_mask_area.png)
 - **Fallbacks are not the cause.** The test fallback rate is 0.6%. The harmful masks are ones that succeeded, but on the wrong region.
 - **Pretrained models lose the most.** Counts are test images right on 02 but wrong on 03, against wrong on 02 but right on 03:
 
@@ -56,9 +70,25 @@ With this mask setup, segmentation hurts 3 of the 4 models. Their drops are much
   | ResNet-18 | 304 | 104 |
   | BoVW + SVM | 335 | 324 |
 
+  ![Test images hurt (left) and helped (right) by segmentation](figures/model_exploration/flips_02_03.png)
+
+  *Left (orange): right on 02, wrong on 03. Right (green): wrong on 02, right on 03.*
+
   BoVW uses local texture, so grey fill mostly just removes descriptors. This matches the 25-Oct trial: masking hurt the pretrained model.
 - **Grad-CAM agrees.** On failures where the mask left only a plate rim or a grey hole, both CNNs focus on the rim or the hole. On the fixed 10-image set, edamame and guacamole lose the food after masking and flip to wrong. Bibimbap, chicken_wings, miso_soup and prime_rib keep the food and stay right. Grad-CAM shows where a model looks, not why it decides, so it supports the numbers above and does not replace them.
+
+  ![Grad-CAM on failures, dataset 03](figures/model_exploration/gradcam_failures_03.jpg)
+
+  *Dataset 03 failures. Columns: input, EfficientNet-B0, ResNet-18. Red marks the regions that drove the prediction.*
+
+  | 01_original | 03_denoise_clahe_gsam |
+  |---|---|
+  | ![Grad-CAM fixed set, 01](figures/model_exploration/gradcam_fixed_01.jpg) | ![Grad-CAM fixed set, 03](figures/model_exploration/gradcam_fixed_03.jpg) |
+
+  *The same 10 test images, one per class, before and after segmentation.*
 - **Most frequent confusions** for EfficientNet-B0 on 03: prime_rib → baby_back_ribs (14), nachos → bibimbap (11), paella → nachos (9).
+
+  ![Top 3 confusion pairs, EfficientNet-B0 on 03](figures/model_exploration/confusion_pairs_effnet_03.jpg)
 
 ## Caveats
 
